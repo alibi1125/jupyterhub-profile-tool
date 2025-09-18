@@ -31,8 +31,7 @@ setup(
     },
     python_requires=">=3.9",
     install_requires=[
-        "json",
-        "jinja2",
         "jupyterhub>=1.5.1",
+        "tornado",
     ],
 )
