@@ -5,9 +5,6 @@ with open("README.md") as f:
 
 setup(
     name="jupyterhub-profile-tool",
-    entry_points={
-        "console_scripts": ["profilemaker=jupyterhub-profile-tool.profilemaker:main"],
-    },
     packages=["jupyterhub-profile-tool"],
     version="0.0.1.dev2",
     description="""A Jupyterhub service that allows users to create, modify and delete Jupyterhub spawner profiles""",
