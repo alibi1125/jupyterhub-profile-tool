@@ -6,10 +6,10 @@ with open("README.md") as f:
 setup(
     name="jupyterhub-profile-tool",
     entry_points={
-        "console_scripts": ["profilemaker=profilemaker:main"],
+        "console_scripts": ["profilemaker=jupyterhub-profile-tool.profilemaker:main"],
     },
     packages=["jupyterhub-profile-tool"],
-    version="0.0.1.dev1",
+    version="0.0.1.dev2",
     description="""A Jupyterhub service that allows users to create, modify and delete Jupyterhub spawner profiles""",
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -23,7 +23,6 @@ setup(
         "Intended Audience :: Developers",
         "Intended Audience :: System Administrators",
         "Intended Audience :: Science/Research",
-        "License :: OSI Approved :: BSD License",
         "Programming Language :: Python",
         "Programming Language :: Python :: 3",
     ],
@@ -34,7 +33,7 @@ setup(
         "Jupyter Project": "http://jupyter.org",
     },
     python_requires=">=3.9",
-    install_require={
+    install_requires={
         "json",
         "jinja2",
         "jupyterhub>=1.5.1",
