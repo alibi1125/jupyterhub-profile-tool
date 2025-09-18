@@ -30,9 +30,9 @@ setup(
         "Jupyter Project": "http://jupyter.org",
     },
     python_requires=">=3.9",
-    install_requires={
+    install_requires=[
         "json",
         "jinja2",
         "jupyterhub>=1.5.1",
-    },
+    ],
 )
