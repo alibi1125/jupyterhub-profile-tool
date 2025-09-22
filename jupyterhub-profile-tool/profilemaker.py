@@ -2,12 +2,15 @@ import argparse
 import json
 import subprocess
 import os
+import sys
+import binascii
 
 from tornado import escape, ioloop, web
 from tornado.log import app_log
 
 from jupyterhub.services.auth import HubOAuthenticated, HubOAuthCallbackHandler
 
+cookie_secret_file = '/root/.jupyterhub_secrets/jupyterhub_cookie_secret'
 
 class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
     """Manage Profiles for JupyterHub wrapspawner"""
@@ -38,7 +41,7 @@ class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
     def write_to_file(self, profile, user_profile_path, username):
         """Write dictionary document to file as JSON"""
         profile_json = json.dumps(profile)
-        subprocess.run(["echo", "'" + profile_json + "'", ">>", user_profile_path], user=username)
+        subprocess.run([sys.executable, '-m', 'jupyterhub-profile-tool.userprofileworker', '--path', user_profile_path, '--action', 'write', profile_json], user=username)
 
 
 def main():
@@ -67,8 +70,12 @@ def parse_arguments():
 
 
 def create_application(api_prefix="/", handler=ProfileMakerHandler, **kwargs):
+    with open(cookie_secret_file) as f:
+        text_secret = f.read().strip()
+    cookie_secret = binascii.a2b_hex(text_secret)
     return web.Application([(api_prefix, handler),
-                            (os.path.joint(api_prefix, 'oauth_callback'), HubOAuthCallbackHandler)])
+                            (os.path.join(api_prefix, 'oauth_callback'), HubOAuthCallbackHandler)],
+                            cookie_secret=cookie_secret)
 
 
 if __name__ == "__main__":
