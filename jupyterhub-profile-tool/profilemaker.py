@@ -6,10 +6,10 @@ import os
 from tornado import escape, ioloop, web
 from tornado.log import app_log
 
-from jupyterhub.services.auth import HubAuthenticated
+from jupyterhub.services.auth import HubOAuthenticated, HubOAuthCallbackHandler
 
 
-class ProfileMakerHandler(HubAuthenticated, web.RequestHandler):
+class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
     """Manage Profiles for JupyterHub wrapspawner"""
 
     home_base_dir = "/mnt/nfs/home"
@@ -67,7 +67,8 @@ def parse_arguments():
 
 
 def create_application(api_prefix="/", handler=ProfileMakerHandler, **kwargs):
-    return web.Application([(api_prefix, handler)])
+    return web.Application([(api_prefix, handler),
+                            (os.path.joint(api_prefix, 'oauth_callback'), HubOAuthCallbackHandler)])
 
 
 if __name__ == "__main__":
