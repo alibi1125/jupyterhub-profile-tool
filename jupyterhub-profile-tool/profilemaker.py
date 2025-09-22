@@ -21,7 +21,7 @@ class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
     # def post(self):
     #     user = self.get_current_user()
     #     app_log.info("Current user name is %s", user["name"])
-    #     user_profile_path = os.path.join(self.home_base_dir, user["name"], ".jupyterhub", "user_profile.json")
+    #     user_profile_path = os.path.join(self.home_base_dir, user["name"], ".jupyterhub", "user_profiles.json")
     #     app_log.info("Trying to write to %s", user_profile_path)
     #     spawner_options = {"req_nprocs": "1", "req_memory": "100mb", "req_partition": "fastlane", "req_runtime": "00:10:00"}
     #     profile = {"description": "Test profile", "options": spawner_options}
@@ -31,7 +31,7 @@ class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
     def get(self):
         user = self.get_current_user()
         app_log.info("Current user name is %s", user["name"])
-        user_profile_path = os.path.join(self.home_base_dir, user["name"], ".jupyterhub", "user_profile.json")
+        user_profile_path = os.path.join(self.home_base_dir, user["name"], ".jupyterhub", "user_profiles.json")
         app_log.info("Trying to write to %s", user_profile_path)
         spawner_options = {"req_nprocs": "1", "req_memory": "100mb", "req_partition": "fastlane", "req_runtime": "00:10:00"}
         profile = {"description": "Test profile", "options": spawner_options}
@@ -41,7 +41,18 @@ class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
     def write_to_file(self, profile, user_profile_path, username):
         """Write dictionary document to file as JSON"""
         profile_json = json.dumps(profile)
-        subprocess.run([sys.executable, '-m', 'jupyterhub-profile-tool.userprofileworker', '--path', user_profile_path, '--action', 'write', profile_json], user=username)
+        subproc_result = subprocess.run(
+            [
+                sys.executable,
+                '-m', 'jupyterhub-profile-tool.userprofileworker',
+                '--path', user_profile_path,
+                '--action', 'write',
+                profile_json
+            ],
+            text=True,
+            user=username)
+        if subproc_result.returncode > 0:
+            app_log.error("Errors encountered in subprocess: %s", subproc_result.stderr)
 
 
 def main():

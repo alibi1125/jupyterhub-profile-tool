@@ -55,7 +55,7 @@ def parse_arguments():
     parser.add_argument(
         '-a',
         '--action',
-        help='Select this program`s operation: read all JSON entries, write given entry, or delete given entry.',
+        help='Select this program`s operation: read all JSON entries, write given entry, or delete given entry. Must always be supplied.',
         choices=['read', 'write', 'delete'],
         required=True,
     )
@@ -65,6 +65,9 @@ def parse_arguments():
         nargs='?',
         default='',
     )
+    # We want to return a dict-like argument representation, which is why vars(...) is necessary (see argparse documentation)
+    return vars(parser.parse_args())
+
 
 if __name__ == "__main__":
     main()
