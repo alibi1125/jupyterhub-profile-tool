@@ -13,24 +13,24 @@ from jupyterhub.services.auth import HubOAuthenticated, HubOAuthCallbackHandler
 class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
     """Manage Profiles for JupyterHub wrapspawner"""
 
-    def initialize(self, home_base_dir):
+    def initialize(self, home_base_dir, **kwargs):
         self.home_base_dir = home_base_dir
         self.profiles = []
 
     def prepare(self):
-        self.profiles = self.read_from_file()
+        self.user = self.get_current_user()
+        app_log.info(f"Current user name is {self.user['name']}")
+        self.user_profile_path = os.path.join(self.home_base_dir, self.user["name"], ".jupyterhub", "user_profiles.json")
+        self.profiles = self._to_file('read')
 
     @web.authenticated
     def get(self):
-        user = self.get_current_user()
-        app_log.info(f"Current user name is {user['name']}")
-        user_profile_path = os.path.join(self.home_base_dir, user["name"], ".jupyterhub", "user_profiles.json")
         spawner_options = {"req_nprocs": "1", "req_memory": "100mb", "req_partition": "fastlane", "req_runtime": "00:10:00"}
         profile = {"description": "Test profile", "options": spawner_options}
-        self._to_file('write', user_profile_path, user["name"], profile)
+        self._to_file('write', profile)
         self.render("page.html", base_url="/hub/")
 
-    def _to_file(self, action, user_profile_path, username, profile='{}'):
+    def _to_file(self, action, profile='{}'):
         """Handles interactions with JSON profile files"""
         if action == 'write' or action == 'delete':
             profile_json = json.dumps(profile)
@@ -42,12 +42,12 @@ class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
             [
                 sys.executable,
                 '-m', 'jupyterhub-profile-tool.userprofileworker',
-                '--path', user_profile_path,
+                '--path', self.user_profile_path,
                 '--action', action,
                 profile_json
             ],
             text=True,
-            user=username)
+            user=self.user["name"])
         if subproc_result.returncode > 0:
             app_log.error(f"Errors encountered in subprocess: {subproc_result.stderr}")
 
