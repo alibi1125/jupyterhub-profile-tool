@@ -17,6 +17,7 @@ class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
         self.home_base_dir = home_base_dir
         self.profiles = []
 
+    @web.authenticated
     def prepare(self):
         self.user = self.get_current_user()
         app_log.info(f"Current user name is {self.user['name']}")
@@ -54,6 +55,7 @@ class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
 
 def main():
     args = parse_arguments()
+    app_log.info(f"Working directory is {os.getcwd()}")
     application = create_application(cmdline_args=args)
     application.listen(args["port"])
     ioloop.IOLoop.current().start()
@@ -82,7 +84,7 @@ def parse_arguments():
     parser.add_argument(
         "--home-base-dir",
         required=True,
-        help="Absolute path to the home directory location. Users' homes are derived as `path.join(home-base-dir, user['name'])."
+        help="Absolute path to the home directory location. Users` homes are derived as home-base-dir/username."
     )
     return vars(parser.parse_args())
 
@@ -91,11 +93,11 @@ def create_application(cmdline_args, handler=ProfileMakerHandler, **kwargs):
     with open(cmdline_args["cookie_secret_file"]) as f:
         text_secret = f.read().strip()
     cookie_secret = binascii.a2b_hex(text_secret)
-    # Build the template loader
     return web.Application([(cmdline_args["api_prefix"], handler, cmdline_args),
                             (os.path.join(cmdline_args["api_prefix"], 'oauth_callback'), HubOAuthCallbackHandler)],
                             cookie_secret=cookie_secret,
-                            template_path='templates')
+                            template_path='templates',
+                            login_url='/hub/login')
 
 
 if __name__ == "__main__":
