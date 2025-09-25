@@ -1,0 +1,99 @@
+<!DOCTYPE HTML>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>
+      JupyterHub - Profile Tool
+    </title>
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet"
+          href="{{ static_url('css/style.min.css') }}"
+          type="text/css" />
+    <link rel="icon" href="{{ static_url('favicon.ico') }}" type="image/x-icon">
+    <meta name="description" content="JupyterHub - Profile Tool">
+    <meta name="keywords" content="Jupyter, JupyterHub, Profiles, SlurmSpawner">
+  </head>
+  <body>
+    <noscript>
+      <div id='noscript'>
+        JupyterHub requires JavaScript.
+        <br>
+        Please enable it to proceed.
+      </div>
+    </noscript>
+    <nav class="navbar navbar-expand-sm bg-body-tertiary mb-4">
+      <div class="container-fluid">
+        <span id="jupyterhub-logo" class="navbar-brand">
+          <a href="{{ logo_url or base_url }}">
+            <img src='{{ base_url }}logo'
+                  alt='JupyterHub logo'
+                  class='jpy-logo'
+                  title='Home' />
+          </a>
+        </span>
+        <div class="collapse navbar-collapse" id="thenavbar">
+          <ul class="navbar-nav me-auto mb-0">
+            {% if user %}
+              {% block nav_bar_left_items %}
+                <li class="nav-item">
+                  <a class="nav-link" href="{{ base_url }}home">Home</a>
+                </li>
+              {% endblock nav_bar_left_items %}
+            {% endif %}
+          </ul>
+          <ul class="nav navbar-nav me-2">
+            {% block nav_bar_right_items %}
+              <li class="nav-item">
+                {% block theme_toggle %}
+                  <button class="btn btn-sm"
+                          id="dark-theme-toggle"
+                          aria-label="Toggle dark mode"
+                          title="Toggle dark mode">
+                    <i aria-hidden="true" class="fa fa-circle-half-stroke"></i>
+                  </button>
+                {% endblock theme_toggle %}
+              </li>
+              <li class="nav-item">
+                <span id="login_widget">
+                  <span class="me-1">{{ user.name }}</span>
+                  <a id="logout"
+                      role="button"
+                      class="btn btn-sm btn-outline-contrast"
+                      href="{{ base_url }}logout"> <i aria-hidden="true" class="fa fa-sign-out"></i>Logout</a>
+                </span>
+              </li>
+            {% endblock nav_bar_right_items %}
+          </ul>
+        </div>
+      </div>
+    </nav>
+    <div class="container">
+      <div class="row text-center">
+        <h1>Server Options</h1>
+      </div>
+    <div class="row justify-content-center">
+      <div class="col-md-8">
+        <form enctype="multipart/form-data"
+              id="profile_form"
+              action="/services/jupyterhub-profile-tool"
+              method="post"
+              role="form">
+          <label for="profile">Select a job profile:</label>
+          <select class="form-control" name="profile" required autofocus>
+            <option value="prof_0" selected>Fastlane access - 1 thread, 512 MB RAM, 1 hour</option>
+            <option value="prof_1" >Slowlane access - 2 threads, 1 GB RAM, 10 hour</option>
+            <option value="prof_2" >My own profile changes again!</option>
+          </select>
+          <br>
+          <div class="feedback-container">
+            <button type="submit" class="btn btn-jupyter form-control">Start</button>
+            <div class="feedback-widget hidden">
+              <i class="fa fa-spinner"></i>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+  </body>
+</html>

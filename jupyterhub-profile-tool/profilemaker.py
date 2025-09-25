@@ -10,55 +10,52 @@ from tornado.log import app_log
 
 from jupyterhub.services.auth import HubOAuthenticated, HubOAuthCallbackHandler
 
-cookie_secret_file = '/root/.jupyterhub_secrets/jupyterhub_cookie_secret'
-
 class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
     """Manage Profiles for JupyterHub wrapspawner"""
 
-    home_base_dir = "/mnt/nfs/home"
+    def initialize(self, home_base_dir):
+        self.home_base_dir = home_base_dir
+        self.profiles = []
 
-    # @web.authenticated
-    # def post(self):
-    #     user = self.get_current_user()
-    #     app_log.info("Current user name is %s", user["name"])
-    #     user_profile_path = os.path.join(self.home_base_dir, user["name"], ".jupyterhub", "user_profiles.json")
-    #     app_log.info("Trying to write to %s", user_profile_path)
-    #     spawner_options = {"req_nprocs": "1", "req_memory": "100mb", "req_partition": "fastlane", "req_runtime": "00:10:00"}
-    #     profile = {"description": "Test profile", "options": spawner_options}
-    #     self.write_to_file(profile, user_profile_path, user["name"])
+    def prepare(self):
+        self.profiles = self.read_from_file()
 
     @web.authenticated
     def get(self):
         user = self.get_current_user()
-        app_log.info("Current user name is %s", user["name"])
+        app_log.info(f"Current user name is {user['name']}")
         user_profile_path = os.path.join(self.home_base_dir, user["name"], ".jupyterhub", "user_profiles.json")
-        app_log.info("Trying to write to %s", user_profile_path)
         spawner_options = {"req_nprocs": "1", "req_memory": "100mb", "req_partition": "fastlane", "req_runtime": "00:10:00"}
         profile = {"description": "Test profile", "options": spawner_options}
-        self.write_to_file(profile, user_profile_path, user["name"])
-        self.write("Hello world")
+        self._to_file('write', user_profile_path, user["name"], profile)
+        self.render("page.html", base_url="/hub/")
 
-    def write_to_file(self, profile, user_profile_path, username):
-        """Write dictionary document to file as JSON"""
-        profile_json = json.dumps(profile)
+    def _to_file(self, action, user_profile_path, username, profile='{}'):
+        """Handles interactions with JSON profile files"""
+        if action == 'write' or action == 'delete':
+            profile_json = json.dumps(profile)
+        elif action == 'read':
+            profile_json = ''
+        else:
+            raise ValueError("Action needs to be one of `read`, `write`, `delete`.")
         subproc_result = subprocess.run(
             [
                 sys.executable,
                 '-m', 'jupyterhub-profile-tool.userprofileworker',
                 '--path', user_profile_path,
-                '--action', 'write',
+                '--action', action,
                 profile_json
             ],
             text=True,
             user=username)
         if subproc_result.returncode > 0:
-            app_log.error("Errors encountered in subprocess: %s", subproc_result.stderr)
+            app_log.error(f"Errors encountered in subprocess: {subproc_result.stderr}")
 
 
 def main():
     args = parse_arguments()
-    application = create_application(**vars(args))
-    application.listen(args.port)
+    application = create_application(cmdline_args=args)
+    application.listen(args["port"])
     ioloop.IOLoop.current().start()
 
 
@@ -77,16 +74,28 @@ def parse_arguments():
         help="port for API to listen on",
         type=int
     )
-    return parser.parse_args()
+    parser.add_argument(
+        "--cookie-secret-file",
+        required=True,
+        help="Location of JupyterHub's cookie secret"
+    )
+    parser.add_argument(
+        "--home-base-dir",
+        required=True,
+        help="Absolute path to the home directory location. Users' homes are derived as `path.join(home-base-dir, user['name'])."
+    )
+    return vars(parser.parse_args())
 
 
-def create_application(api_prefix="/", handler=ProfileMakerHandler, **kwargs):
-    with open(cookie_secret_file) as f:
+def create_application(cmdline_args, handler=ProfileMakerHandler, **kwargs):
+    with open(cmdline_args["cookie_secret_file"]) as f:
         text_secret = f.read().strip()
     cookie_secret = binascii.a2b_hex(text_secret)
-    return web.Application([(api_prefix, handler),
-                            (os.path.join(api_prefix, 'oauth_callback'), HubOAuthCallbackHandler)],
-                            cookie_secret=cookie_secret)
+    # Build the template loader
+    return web.Application([(cmdline_args["api_prefix"], handler, cmdline_args),
+                            (os.path.join(cmdline_args["api_prefix"], 'oauth_callback'), HubOAuthCallbackHandler)],
+                            cookie_secret=cookie_secret,
+                            template_path='templates')
 
 
 if __name__ == "__main__":
