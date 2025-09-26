@@ -8,10 +8,10 @@ def main():
         with open(args['path']) as file:
             content = file.read()
     except FileNotFoundError:
+        sys.stderr.write(f"Could not find {args['path']}. Creating it.")
         with open(args['path'], 'w') as file:
             file.write('[]')
         content = "[]"
-        sys.stderr.write(f"Could not find {args['path']}. Creating it.")
     if args['action'] == 'read':
         sys.stdout.write(content)
         return

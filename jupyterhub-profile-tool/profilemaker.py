@@ -4,6 +4,7 @@ import subprocess
 import os
 import sys
 import binascii
+import logging
 
 from tornado import escape, ioloop, web
 from tornado.log import app_log
@@ -22,16 +23,16 @@ class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
         self.user = self.get_current_user()
         app_log.info(f"Current user name is {self.user['name']}")
         self.user_profile_path = os.path.join(self.home_base_dir, self.user["name"], ".jupyterhub", "user_profiles.json")
-        self.profiles = self._to_file('read')
+        self.profiles = self._file_op('read')
 
     @web.authenticated
     def get(self):
         spawner_options = {"req_nprocs": "1", "req_memory": "100mb", "req_partition": "fastlane", "req_runtime": "00:10:00"}
         profile = {"description": "Test profile", "options": spawner_options}
-        self._to_file('write', profile)
-        self.render("page.html", base_url="/hub/")
+        self._file_op('write', profile)
+        self.render("page.html", base_url="/hub/") 
 
-    def _to_file(self, action, profile='{}'):
+    def _file_op(self, action, profile='{}'):
         """Handles interactions with JSON profile files"""
         if action == 'write' or action == 'delete':
             profile_json = json.dumps(profile)
@@ -55,6 +56,11 @@ class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
 
 def main():
     args = parse_arguments()
+    abspath = os.path.abspath(__file__)
+    dname = os.path.dirname(abspath)
+    os.chdir(dname)
+    app_log.addHandler(logging.handlers.SysLogHandler('/dev/log'))
+    app_log.setLevel("DEBUG")
     app_log.info(f"Working directory is {os.getcwd()}")
     application = create_application(cmdline_args=args)
     application.listen(args["port"])

@@ -5,8 +5,8 @@ with open("README.md") as f:
 
 setup(
     name="jupyterhub-profile-tool",
-    packages=["jupyterhub-profile-tool"],
-    version="0.0.2.dev2",
+    packages=["jupyterhub-profile-tool", "jupyterhub_profile_tool.templates"],
+    version="0.0.2.dev3",
     description="""A Jupyterhub service that allows users to create, modify and delete Jupyterhub spawner profiles""",
     long_description=long_description,
     long_description_content_type="text/markdown",
