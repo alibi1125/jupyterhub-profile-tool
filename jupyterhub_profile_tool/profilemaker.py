@@ -30,7 +30,7 @@ class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
         spawner_options = {"req_nprocs": "1", "req_memory": "100mb", "req_partition": "fastlane", "req_runtime": "00:10:00"}
         profile = {"description": "Test profile", "options": spawner_options}
         self._file_op('write', profile)
-        self.render("page.html", base_url="/hub/") 
+        self.render("page.html", base_url="/hub/", user=self.user["name"])
 
     def _file_op(self, action, profile='{}'):
         """Handles interactions with JSON profile files"""
@@ -43,7 +43,7 @@ class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
         subproc_result = subprocess.run(
             [
                 sys.executable,
-                '-m', 'jupyterhub-profile-tool.userprofileworker',
+                '-m', 'jupyterhub_profile_tool.userprofileworker',
                 '--path', self.user_profile_path,
                 '--action', action,
                 profile_json
