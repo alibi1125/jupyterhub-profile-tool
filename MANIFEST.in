@@ -1,1 +1,1 @@
-include jupyterhub-profile-tool/templates/*
+include jupyterhub_profile_tool/templates/*
