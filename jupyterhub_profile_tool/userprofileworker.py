@@ -23,8 +23,11 @@ def main():
         sys.exit(1)
         return
     if type(content_list) != list:
-        sys.stderr.write(f"Content of {args['path']} is not a list after loading it. This is not expected.")
+        sys.stderr.write(f"Content of {args['path']} is not a list after loading it. This is unexpected. Not changing anything.")
         sys.exit(1)
+        return
+    if args['action'] == 'delete':
+        content_list.pop(args['entry_index'])
         return
     try:
         entry_dict = json.loads(args['json_entry'])
@@ -33,14 +36,14 @@ def main():
         sys.exit(1)
         return
     if args['action'] == 'write':
-        content_list.append(entry_dict)
-    elif args['action'] == 'delete':
-        for index, element in content_list:
-            if element == entry_dict:
-                content_list.pop(index)
-                break
+        if args['entry_index']:
+            content_list.insert(args['entry_index'], entry_dict)
         else:
-            sys.stderr.write("Found no exact match for provided entry. Doing nothing.")
+            content_list.append(entry_dict)
+    elif args['action'] == 'update':
+        content_list[args['entry_index']] = entry_dict
+    else:
+        raise NotImplementedError(f"action argument {args['action']} unknown.")
     with open(args['path'], 'w') as file:
         json.dump(content_list, file, indent=4)
     sys.exit(0)
@@ -58,18 +61,28 @@ def parse_arguments():
     parser.add_argument(
         '--action',
         help='Select this program`s operation: read all JSON entries, write given entry, or delete given entry. Must always be supplied.',
-        choices=['read', 'write', 'delete'],
+        choices=['read', 'write', 'delete', 'update'],
         required=True,
     )
     parser.add_argument(
+        '--entry_index',
+        help='Integer containing the index of the profile to change. Mandatory for `update` and `delete`, optional for `write`, ignored for `read`.',
+        type=int,
+        default=None,
+    )
+    parser.add_argument(
         'json_entry',
-        help='String containing a simple JSON formatted entry to write to or delete from the file.',
+        help='String containing a simple JSON formatted entry to write or update in the file. Silently ignored for `read` and `delete`.',
         nargs='?',
         default='',
     )
     args = parser.parse_args()
-    if args.action != 'read' and args.json_entry == '':
-        sys.stderr.write("Cannot process writes or deletes without data element.")
+    if args.action in {'write', 'update'} and args.json_entry == '':
+        sys.stderr.write("Cannot process writes or updates without data element to write.")
+        sys.exit(1)
+        return
+    if args.action in {'update', 'delete'} and args.entry_index is None:
+        sys.stderr.write("Cannot process updates or deletes without a target.")
         sys.exit(1)
         return
     # We want to return a dict-like argument representation, which is why vars(...) is necessary (see argparse documentation)

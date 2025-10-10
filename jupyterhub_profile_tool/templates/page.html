@@ -8,9 +8,9 @@
     <meta http-equiv="X-UA-Compatible" content="chrome=1">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet"
-          href="{{ /hub/static/css/style.min.css }}"
+          href="/hub/static/css/style.min.css"
           type="text/css" />
-    <link rel="icon" href="{{ /hub/static/favicon.ico }}" type="image/x-icon">
+    <link rel="icon" href="/hub/static/favicon.ico" type="image/x-icon">
     <meta name="description" content="JupyterHub - Profile Tool">
     <meta name="keywords" content="Jupyter, JupyterHub, Profiles, SlurmSpawner">
   </head>
@@ -59,9 +59,9 @@
                   <span id="login_widget">
                     <span class="me-1">{{ user }}</span>
                     <a id="logout"
-                        role="button"
-                        class="btn btn-sm btn-outline-contrast"
-                        href="{{ base_url }}logout"> <i aria-hidden="true" class="fa fa-sign-out"></i>Logout</a>
+                       role="button"
+                       class="btn btn-sm btn-outline-contrast"
+                       href="{{ base_url }}logout"> <i aria-hidden="true" class="fa fa-sign-out"></i>Logout</a>
                   </span>
                 </li>
               {% endif %}
@@ -72,30 +72,116 @@
     </nav>
     <div class="container">
       <div class="row text-center">
-        <h1>Server Options</h1>
+        <h1>Profile Maker</h1>
       </div>
-    <div class="row justify-content-center">
-      <div class="col-md-8">
-        <form enctype="multipart/form-data"
-              id="profile_form"
-              action="/services/jupyterhub-profile-tool"
-              method="post"
-              role="form">
-          <label for="profile">Select a job profile:</label>
-          <select class="form-control" name="profile" required autofocus>
-            <option value="prof_0" selected>Fastlane access - 1 thread, 512 MB RAM, 1 hour</option>
-            <option value="prof_1" >Slowlane access - 2 threads, 1 GB RAM, 10 hour</option>
-            <option value="prof_2" >My own profile changes again!</option>
-          </select>
-          <br>
+      <div class="row justify-content-center col-md-8">
+        <label for="profileSelect">Select a job profile:</label>
+        <select class="form-control" id="profileSelect" required autofocus>
+          {% for profile in profiles %}
+            <option value="{{ profile['profile_id'] }}" {% if profile['profile_id'] == selected_profile %}selected{% end %}>
+              {{ profile['description'] }}
+            </option>
+          {% endfor %}
+        </select>
+        <br>
+        <div class="feedback-container">
+          <button id="btnNew" class="btn btn-jupyter">New Profile</button>
+          <button id="btnEdit" class="btn btn-jupyter">Edit Profile</button>
+          <button id="btnDelete" class="btn btn-jupyter">Delete Profile</button>
+        </div>
+      </div>
+      <br>
+      <div id="profileForm" class="form-section">
+        <h2 id="formTitle"></h2>
+        <form id="formData">
+          <div class="form-group">
+            <label for="fdescription">Profile description:</label>
+            <input id="fdescription"
+                   type="text"
+                   value="New Profile"
+                   title="Description which will appear in profile selection drop-downs. Ensuring understandability and uniqueness is users' responsibility.">
+          </div>
+          <div class="form-group">
+            <label for="fncpus">CPU cores:</label>
+            <input id="fncpus"
+                   type="number"
+                   min="1"
+                   max="128"
+                   value="1"
+                   title="Profile's CPU core limit.">
+          </div>
+          <div class="form-group">
+            <label for="fmem">Memory:</label>
+            <input id="fmem"
+                   type="text"
+                   pattern="[0-9]+\s*[kKmMgGtT]?[bB]?"
+                   value="1 GB"
+                   title="Profile's memory (RAM) limit. Can include units. If no unit is set, gigabytes (GB) are assumed.">
+          </div>
           <div class="feedback-container">
-            <button type="submit" class="btn btn-jupyter form-control">Start</button>
-            <div class="feedback-widget hidden">
-              <i class="fa fa-spinner"></i>
-            </div>
+            <button type="submit" class="btn btn-jupyter">Submit</button>
           </div>
         </form>
       </div>
     </div>
+    <script>
+      const profileSelect = document.getElementById("profileSelect");
+      const btnNew = document.getElementById("btnNew");
+      const btnEdit = document.getElementById("btnEdit");
+      const btnDelete = document.getElementById("btnDelete");
+      const formSection = document.getElementById("profileForm");
+      const formTitle = document.getElementById("formTitle");
+      const formData = document.getElementById("formData");
+      var selectedId = "";
+
+      btnNew.addEventListener("click", () => {
+        selectedId = "";
+        formTitle.textContent = "New Profile";
+        formData.reset();
+        formSection.classList.add("active");
+      });
+
+      btnEdit.addEventListener("click", () => {
+        selectedId = profileSelect.value;
+        if (!selectedId) return;
+
+        // Werte vom Server holen (z. B. JSON-Endpoint `/profiles/{id}`)
+        fetch(`{{ prefix }}profiles/${selectedId}/data`)
+          .then(res => res.json())
+          .then(data => {
+            formTitle.textContent = "Change Profile";
+            formSection.classList.add("active");
+            document.getElementById("fdescription").value = data.description || "";
+            document.getElementById("fncpus").value = data.options.ncpus || "1";
+            document.getElementById("fmem").value = data.options.mem || "1 GB";
+          });
+      });
+
+      btnDelete.addEventListener("click", () => {
+        selectedId = profileSelect.value;
+        if (!selectedId) return;
+        if (!confirm("Are you sure to delete this profile?")) return;
+
+        fetch(`{{ prefix }}profiles/${selectedId}/delete`, { method: "POST" })
+          .then(() => window.location.reload());
+      });
+
+      formData.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const formValues = Object.fromEntries(new FormData(formData).entries());
+
+        const isNew = selectedId === "";
+        const url = isNew
+          ? "{{ prefix }}profiles/create"
+          : `{{ prefix }}profiles/${selectedId}/update`;
+
+        fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(formValues)
+        })
+        .then(() => window.location.reload());
+      });
+    </script>
   </body>
 </html>
