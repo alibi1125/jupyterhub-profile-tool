@@ -33,7 +33,7 @@ class ProfileMakerHandler(BaseProfileHandler):
     def get(self):
         profiles = self.manager_instance.get_all_profiles()
         self.render("page.html", base_url="/hub/", user=self.user["name"], profiles=profiles, prefix=self.prefix)
-    
+
     def post(self):
         spawner_options = {"req_nprocs": "1", "req_memory": "100mb", "req_partition": "fastlane", "req_runtime": "00:10:00"}
         profile = {"description": "Test profile", "options": spawner_options}
@@ -90,13 +90,13 @@ class ProfileManager():
         app_log.debug(f"Instantiating profile manager for user {username}")
         self.username = username
         self.user_profile_path = os.path.join(self.home_base_dir, username, ".jupyterhub", "user_profiles.json")
-    
+
     def __profile_id_to_index(self, profile_id):
         return int(profile_id.strip("prof_"))
-    
+
     def __index_to_profile_id(self, index):
         return f"prof_{index}"
-    
+
     def __ensure_stringified(self, profile):
         if isinstance(profile, dict):
             # Ensure the profile_id is removed before creating the string dump
@@ -111,18 +111,19 @@ class ProfileManager():
 
     def __file_op(self, action, entry_index=None, new_profile=None):
         """Handles interactions with JSON profile files"""
-        if action not in {'read', 'write', 'delete', 'update'}:
+        if action not in {"read", "write", "delete", "update"}:
             raise ValueError("`action` needs to be one of `read`, `write`, `delete`, `update`.")
         cmd = [
             sys.executable,
-            '-m', 'jupyterhub_profile_tool.userprofileworker',
-            '--path', self.user_profile_path,
-            '--action', action,
+            "-m", "jupyterhub_profile_tool.userprofileworker",
+            "--path", self.user_profile_path,
+            "--action", action,
             ]
         if entry_index:
-            cmd.extend(['--entry_index', str(entry_index)])
+            cmd.extend(["--entry_index", str(entry_index)])
         if new_profile:
             cmd.append(new_profile)
+        app_log.debug(f"Full command: {''.join(cmd)}")
         subproc_result = subprocess.run(cmd, text=True, user=self.username)
         # When reporting problems in the subproc, we assume a two-stage approach.
         # If it returns an RC > 0, we assume something went seriously wrong and error out.
@@ -130,20 +131,21 @@ class ProfileManager():
         if subproc_result.returncode > 0:
             app_log.error(f"Errors encountered in subprocess: {subproc_result.stderr}")
             raise self.FileOpException()
-        elif subproc_result.stderr != '':
+        elif subproc_result.stderr is not None:
             app_log.warning(f"Problems encountered in subprocess: {subproc_result.stderr}")
-        if action == 'read':
+        if action == "read":
+            app_log.debug(f"Full subprocess output: {subproc_result.stdout}")
             return subproc_result.stdout
-    
+
     def create_profile(self, profile):
         profile_str = self.__ensure_stringified(profile)
         self.__file_op("write", new_profile=profile_str)
-    
+
     def update_profile(self, profile_id, new_profile):
         old_profile_index = self.__profile_id_to_index(profile_id)
         new_profile_str = self.__ensure_stringified(new_profile)
         self.__file_op("update", entry_index=old_profile_index, new_profile=new_profile_str)
-    
+
     def delete_profile(self, profile_id):
         old_profile_index = self.__profile_id_to_index(profile_id)
         self.__file_op("delete", entry_index=old_profile_index)
@@ -159,8 +161,12 @@ class ProfileManager():
         except json.JSONDecodeError:
             app_log.error("Could not parse the JSON entries in the profiles file.")
             loaded_profiles = []
+        app_log.debug(f"Profile data structure is {loaded_profiles}")
         for index, profile in loaded_profiles:
-            profile["profile_id"] = self.__index_to_profile_id(index)
+            if isinstance(profile, dict):
+                profile["profile_id"] = self.__index_to_profile_id(index)
+            else:
+                app_log.error(f"Unexpected non-dict element encountered: Type {type(profile)}, content {profile}")
         return loaded_profiles
 
 
@@ -219,8 +225,8 @@ def create_application(cmdline_args, **kwargs):
     cookie_secret = binascii.a2b_hex(text_secret)
     ProfileManager.home_base_dir = cmdline_args["home_base_dir"]
     prefix = cmdline_args["service_prefix"]
-    return web.Application([(prefix, ProfileMakerHandler),
-                            (urljoin(prefix, "profiles/(prof_[0-9]+)/data"), ProfileGetHandler, {'prefix': prefix}),
+    return web.Application([(prefix, ProfileMakerHandler, {"prefix": prefix}),
+                            (urljoin(prefix, "profiles/(prof_[0-9]+)/data"), ProfileGetHandler),
                             (urljoin(prefix, "profiles/create"), ProfileCreateHandler),
                             (urljoin(prefix, "profiles/(prof_[0-9]+)/update"), ProfileUpdateHandler),
                             (urljoin(prefix, "profiles/(prof_[0-9]+)/delete"), ProfileDeleteHandler),

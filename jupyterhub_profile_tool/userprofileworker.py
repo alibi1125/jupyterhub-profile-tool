@@ -14,6 +14,7 @@ def main():
         content = "[]"
     if args['action'] == 'read':
         sys.stdout.write(content)
+        sys.exit(0)
         return
     # Convert both file content and the passed json_entry to dicts for easier processing and consistent formatting
     try:

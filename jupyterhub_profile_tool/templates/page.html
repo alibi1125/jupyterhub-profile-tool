@@ -39,8 +39,8 @@
                 <li class="nav-item">
                   <a class="nav-link" href="{{ base_url }}home">Home</a>
                 </li>
-              {% endblock nav_bar_left_items %}
-            {% endif %}
+              {% end %}
+            {% end %}
           </ul>
           <ul class="nav navbar-nav me-2">
             {% block nav_bar_right_items %}
@@ -64,7 +64,7 @@
                        href="{{ base_url }}logout"> <i aria-hidden="true" class="fa fa-sign-out"></i>Logout</a>
                   </span>
                 </li>
-              {% endif %}
+              {% end %}
             {% end %}
           </ul>
         </div>
@@ -81,7 +81,7 @@
             <option value="{{ profile['profile_id'] }}" {% if profile['profile_id'] == selected_profile %}selected{% end %}>
               {{ profile['description'] }}
             </option>
-          {% endfor %}
+          {% end %}
         </select>
         <br>
         <div class="feedback-container">
@@ -103,7 +103,7 @@
           </div>
           <div class="form-group">
             <label for="options.ncpus">CPU cores:</label>
-            <input id="options.ncpus"
+            <input id="options.req_nprocs"
                    type="number"
                    min="1"
                    max="128"
@@ -112,7 +112,7 @@
           </div>
           <div class="form-group">
             <label for="options.mem">Memory:</label>
-            <input id="options.mem"
+            <input id="options.req_memory"
                    type="text"
                    pattern="[0-9]+\s*[kKmMgGtT]?[bB]?"
                    value="1 GB"
