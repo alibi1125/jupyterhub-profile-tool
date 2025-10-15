@@ -91,9 +91,9 @@
         </div>
       </div>
       <br>
-      <div id="profileForm" class="form-section">
+      <div id="formSection" class="form-section">
         <h2 id="formTitle"></h2>
-        <form id="formData">
+        <form id="profileForm">
           <div class="form-group">
             <label for="description">Profile description:</label>
             <input id="description"
@@ -129,10 +129,10 @@
       const btnNew = document.getElementById("btnNew");
       const btnEdit = document.getElementById("btnEdit");
       const btnDelete = document.getElementById("btnDelete");
-      const formSection = document.getElementById("profileForm");
+      const formSection = document.getElementById("formSection");
       const formTitle = document.getElementById("formTitle");
-      const formData = document.getElementById("formData");
-      var selectedId = "";
+      const profileForm = document.getElementById("profileForm");
+      let selectedId = "";
 
       function formDataToObject(form) {
         const formValues = Object.fromEntries(new FormData(form).entries());
@@ -178,7 +178,7 @@
       btnNew.addEventListener("click", () => {
         selectedId = "";
         formTitle.textContent = "New Profile";
-        formData.reset();
+        profileForm.reset();
         formSection.classList.add("active");
       });
 
@@ -193,7 +193,7 @@
             formSection.classList.add("active");
 
             // Formular mit allen (auch verschachtelten) Feldern füllen
-            fillForm(data, formData);
+            fillForm(data, profileForm);
           });
       });
 
@@ -206,9 +206,9 @@
           .then(() => window.location.reload());
       });
 
-      formData.addEventListener("submit", (e) => {
+      profileForm.addEventListener("submit", (e) => {
         e.preventDefault();
-        const structuredData = formDataToObject(formData);
+        const structuredData = formDataToObject(profileForm);
 
         const isNew = selectedId === "";
         const url = isNew

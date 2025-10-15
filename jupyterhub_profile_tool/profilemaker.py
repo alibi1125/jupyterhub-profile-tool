@@ -32,7 +32,7 @@ class ProfileMakerHandler(BaseProfileHandler):
 
     def get(self):
         profiles = self.manager_instance.get_all_profiles()
-        self.render("page.html", base_url="/hub/", user=self.user["name"], profiles=profiles, prefix=self.prefix)
+        self.render("page.html", base_url="/hub/", user=self.user["name"], profiles=profiles, prefix=self.prefix, selected_profile="prof_0")
 
     def post(self):
         spawner_options = {"req_nprocs": "1", "req_memory": "100mb", "req_partition": "fastlane", "req_runtime": "00:10:00"}
@@ -44,12 +44,12 @@ class ProfileGetHandler(BaseProfileHandler):
     """Gets the user's profiles"""
 
     def get(self, profile_id):
-        profiles = self.manager_instance.get_singular_profile(profile_id)
-        if profiles is None:
+        profile = self.manager_instance.get_singular_profile(profile_id)
+        if profile is None:
             self.set_status(404)
             self.finish({"error": "Profile not found"})
             return
-        self.write(profiles)
+        self.write(profile)
 
 
 class ProfileCreateHandler(BaseProfileHandler):
@@ -123,15 +123,15 @@ class ProfileManager():
             cmd.extend(["--entry_index", str(entry_index)])
         if new_profile:
             cmd.append(new_profile)
-        app_log.debug(f"Full command: {''.join(cmd)}")
-        subproc_result = subprocess.run(cmd, text=True, user=self.username)
+        app_log.debug(f"Full command: {' '.join(cmd)}")
+        subproc_result = subprocess.run(cmd, capture_output=True, text=True, user=self.username)
         # When reporting problems in the subproc, we assume a two-stage approach.
         # If it returns an RC > 0, we assume something went seriously wrong and error out.
         # If it has an error output, but no non-normal RC, we forward the message as a warning, but continue.
         if subproc_result.returncode > 0:
             app_log.error(f"Errors encountered in subprocess: {subproc_result.stderr}")
             raise self.FileOpException()
-        elif subproc_result.stderr is not None:
+        elif subproc_result.stderr != "":
             app_log.warning(f"Problems encountered in subprocess: {subproc_result.stderr}")
         if action == "read":
             app_log.debug(f"Full subprocess output: {subproc_result.stdout}")
@@ -162,7 +162,7 @@ class ProfileManager():
             app_log.error("Could not parse the JSON entries in the profiles file.")
             loaded_profiles = []
         app_log.debug(f"Profile data structure is {loaded_profiles}")
-        for index, profile in loaded_profiles:
+        for index, profile in enumerate(loaded_profiles):
             if isinstance(profile, dict):
                 profile["profile_id"] = self.__index_to_profile_id(index)
             else:
@@ -225,6 +225,7 @@ def create_application(cmdline_args, **kwargs):
     cookie_secret = binascii.a2b_hex(text_secret)
     ProfileManager.home_base_dir = cmdline_args["home_base_dir"]
     prefix = cmdline_args["service_prefix"]
+    app_log.debug(f"Using service prefix {prefix}")
     return web.Application([(prefix, ProfileMakerHandler, {"prefix": prefix}),
                             (urljoin(prefix, "profiles/(prof_[0-9]+)/data"), ProfileGetHandler),
                             (urljoin(prefix, "profiles/create"), ProfileCreateHandler),
