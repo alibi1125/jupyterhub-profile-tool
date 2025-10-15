@@ -14,16 +14,21 @@ from traitlets import Unicode
 
 from jupyterhub.services.auth import HubOAuthenticated, HubOAuthCallbackHandler
 
-class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
-    """Manage Profiles for JupyterHub wrapspawner"""
 
-    def initialize(self, prefix):
-        self.prefix = prefix
+class BaseProfileHandler(HubOAuthenticated, web.RequestHandler):
+    """Base handler class for this program. Does the mixin of hub authentication, creates a ProfileManager instance in its prepare method."""
 
     @web.authenticated
     def prepare(self):
         self.user = self.get_current_user()
         self.manager_instance = ProfileManager(self.user["name"])
+
+
+class ProfileMakerHandler(BaseProfileHandler):
+    """Manage Profiles for JupyterHub wrapspawner"""
+
+    def initialize(self, prefix):
+        self.prefix = prefix
 
     def get(self):
         profiles = self.manager_instance.get_all_profiles()
@@ -32,16 +37,11 @@ class ProfileMakerHandler(HubOAuthenticated, web.RequestHandler):
     def post(self):
         spawner_options = {"req_nprocs": "1", "req_memory": "100mb", "req_partition": "fastlane", "req_runtime": "00:10:00"}
         profile = {"description": "Test profile", "options": spawner_options}
-        stringified_profile = json.dumps(profile)
-        self.manager_instance.create_profile(stringified_profile)
+        self.manager_instance.create_profile(profile)
 
-class ProfileGetHandler(HubOAuthenticated, web.RequestHandler):
+
+class ProfileGetHandler(BaseProfileHandler):
     """Gets the user's profiles"""
-
-    @web.authenticated
-    def prepare(self):
-        self.user = self.get_current_user()
-        self.manager_instance = ProfileManager(self.user["name"])
 
     def get(self, profile_id):
         profiles = self.manager_instance.get_singular_profile(profile_id)
@@ -51,40 +51,29 @@ class ProfileGetHandler(HubOAuthenticated, web.RequestHandler):
             return
         self.write(profiles)
 
-class ProfileCreateHandler(HubOAuthenticated, web.RequestHandler):
-    """Creates an entirely new profile for the current user"""
 
-    @web.authenticated
-    def prepare(self):
-        self.user = self.get_current_user()
-        self.manager_instance = ProfileManager(self.user["name"])
+class ProfileCreateHandler(BaseProfileHandler):
+    """Creates an entirely new profile for the current user"""
 
     def post(self):
         data = self.request.body.decode('utf-8')
         self.manager_instance.create_profile(data)
 
-class ProfileUpdateHandler(HubOAuthenticated, web.RequestHandler):
-    """Creates an entirely new profile for the current user"""
 
-    @web.authenticated
-    def prepare(self):
-        self.user = self.get_current_user()
-        self.manager_instance = ProfileManager(self.user["name"])
+class ProfileUpdateHandler(BaseProfileHandler):
+    """Updates a given profile for the current user"""
 
     def post(self, profile_id):
         data = self.request.body.decode('utf-8')
         self.manager_instance.update_profile(profile_id, data)
 
-class ProfileDeleteHandler(HubOAuthenticated, web.RequestHandler):
-    """Creates an entirely new profile for the current user"""
 
-    @web.authenticated
-    def prepare(self):
-        self.user = self.get_current_user()
-        self.manager_instance = ProfileManager(self.user["name"])
+class ProfileDeleteHandler(BaseProfileHandler):
+    """Removes a profile for the current user"""
 
     def post(self, profile_id):
         self.manager_instance.delete_profile(profile_id)
+
 
 class ProfileManager():
     """Performs the profile management in the background, keeping the Handlers simple"""
@@ -108,33 +97,19 @@ class ProfileManager():
     def __index_to_profile_id(self, index):
         return f"prof_{index}"
     
-    def create_profile(self, profile):
-        self._file_op("write", profile)
-    
-    def update_profile(self, profile_id, new_profile):
-        old_profile_index = self.__profile_id_to_index(profile_id)
-        self._file_op("update", entry_index=old_profile_index, new_profile=new_profile)
-    
-    def delete_profile(self, profile_id):
-        old_profile_index = self.__profile_id_to_index(profile_id)
-        self._file_op("delete", entry_index=old_profile_index)
+    def __ensure_stringified(self, profile):
+        if isinstance(profile, dict):
+            # Ensure the profile_id is removed before creating the string dump
+            profile.pop("profile_id", None)
+            profile = json.dumps(profile)
+        elif isinstance(profile, str):
+            # If `profile` is a string already, use it as-is with no further checking
+            pass
+        else:
+            raise ValueError(f"Unexpected profile representation: {type(profile)}. Cannot continue.")
+        return profile
 
-    def get_singular_profile(self, profile_id):
-        profiles = self.get_all_profiles()
-        return next((p for p in profiles if p["profile_id"] == profile_id), None)
-
-    def get_all_profiles(self):
-        profiles = self._file_op("read")
-        try:
-            loaded_profiles = json.loads(profiles)
-        except json.JSONDecodeError:
-            app_log.error("Could not parse the JSON entries in the profiles file.")
-            loaded_profiles = []
-        for index, profile in loaded_profiles:
-            profile["profile_id"] = self.__index_to_profile_id(index)
-        return loaded_profiles
-
-    def _file_op(self, action, entry_index=None, new_profile=None):
+    def __file_op(self, action, entry_index=None, new_profile=None):
         """Handles interactions with JSON profile files"""
         if action not in {'read', 'write', 'delete', 'update'}:
             raise ValueError("`action` needs to be one of `read`, `write`, `delete`, `update`.")
@@ -149,6 +124,9 @@ class ProfileManager():
         if new_profile:
             cmd.append(new_profile)
         subproc_result = subprocess.run(cmd, text=True, user=self.username)
+        # When reporting problems in the subproc, we assume a two-stage approach.
+        # If it returns an RC > 0, we assume something went seriously wrong and error out.
+        # If it has an error output, but no non-normal RC, we forward the message as a warning, but continue.
         if subproc_result.returncode > 0:
             app_log.error(f"Errors encountered in subprocess: {subproc_result.stderr}")
             raise self.FileOpException()
@@ -156,6 +134,34 @@ class ProfileManager():
             app_log.warning(f"Problems encountered in subprocess: {subproc_result.stderr}")
         if action == 'read':
             return subproc_result.stdout
+    
+    def create_profile(self, profile):
+        profile_str = self.__ensure_stringified(profile)
+        self.__file_op("write", new_profile=profile_str)
+    
+    def update_profile(self, profile_id, new_profile):
+        old_profile_index = self.__profile_id_to_index(profile_id)
+        new_profile_str = self.__ensure_stringified(new_profile)
+        self.__file_op("update", entry_index=old_profile_index, new_profile=new_profile_str)
+    
+    def delete_profile(self, profile_id):
+        old_profile_index = self.__profile_id_to_index(profile_id)
+        self.__file_op("delete", entry_index=old_profile_index)
+
+    def get_singular_profile(self, profile_id):
+        profiles = self.get_all_profiles()
+        return next((p for p in profiles if p["profile_id"] == profile_id), None)
+
+    def get_all_profiles(self):
+        profiles = self.__file_op("read")
+        try:
+            loaded_profiles = json.loads(profiles)
+        except json.JSONDecodeError:
+            app_log.error("Could not parse the JSON entries in the profiles file.")
+            loaded_profiles = []
+        for index, profile in loaded_profiles:
+            profile["profile_id"] = self.__index_to_profile_id(index)
+        return loaded_profiles
 
 
 def main():
