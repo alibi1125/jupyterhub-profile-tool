@@ -119,9 +119,9 @@ class ProfileManager():
             "--path", self.user_profile_path,
             "--action", action,
             ]
-        if entry_index:
+        if entry_index is not None:
             cmd.extend(["--entry_index", str(entry_index)])
-        if new_profile:
+        if new_profile is not None:
             cmd.append(new_profile)
         app_log.debug(f"Full command: {' '.join(cmd)}")
         subproc_result = subprocess.run(cmd, capture_output=True, text=True, user=self.username)
