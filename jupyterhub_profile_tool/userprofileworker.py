@@ -29,22 +29,22 @@ def main():
         return
     if args['action'] == 'delete':
         content_list.pop(args['entry_index'])
-        return
-    try:
-        entry_dict = json.loads(args['json_entry'])
-    except json.JSONDecodeError:
-        sys.stderr.write(f"JSON entry in argument could not be parsed. Doing nothing.")
-        sys.exit(1)
-        return
-    if args['action'] == 'write':
-        if args['entry_index']:
-            content_list.insert(args['entry_index'], entry_dict)
-        else:
-            content_list.append(entry_dict)
-    elif args['action'] == 'update':
-        content_list[args['entry_index']] = entry_dict
     else:
-        raise NotImplementedError(f"action argument {args['action']} unknown.")
+        try:
+            entry_dict = json.loads(args['json_entry'])
+        except json.JSONDecodeError:
+            sys.stderr.write(f"JSON entry in argument could not be parsed. Doing nothing.")
+            sys.exit(1)
+            return
+        if args['action'] == 'write':
+            if args['entry_index']:
+                content_list.insert(args['entry_index'], entry_dict)
+            else:
+                content_list.append(entry_dict)
+        elif args['action'] == 'update':
+            content_list[args['entry_index']] = entry_dict
+        else:
+            raise NotImplementedError(f"action argument {args['action']} unknown.")
     with open(args['path'], 'w') as file:
         json.dump(content_list, file, indent=4)
     sys.exit(0)

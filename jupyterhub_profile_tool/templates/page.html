@@ -77,21 +77,25 @@
       <div class="row justify-content-center col-md-8">
         <label for="profileSelect">Select a job profile:</label>
         <select class="form-control" id="profileSelect" required autofocus>
-          {% for profile in profiles %}
-            <option value="{{ profile['profile_id'] }}" {% if profile['profile_id'] == selected_profile %}selected{% end %}>
-              {{ profile['description'] }}
-            </option>
+          {% if len(profile) > 0 %}
+            {% for profile in profiles %}
+              <option value="{{ profile['profile_id'] }}" {% if profile['profile_id'] == selected_profile %}selected{% end %}>
+                {{ profile['description'] }}
+              </option>
+            {% end %}
+          {% else %}
+            <option value="no-profile" selected>No user profiles found</option>
           {% end %}
         </select>
         <br>
         <div class="feedback-container">
           <button id="btnNew" class="btn btn-jupyter">New Profile</button>
-          <button id="btnEdit" class="btn btn-jupyter">Edit Profile</button>
-          <button id="btnDelete" class="btn btn-jupyter">Delete Profile</button>
+          <button id="btnEdit" class="btn btn-jupyter{% if len(profiles == 0 %) hidden{% end %}">Edit Profile</button>
+          <button id="btnDelete" class="btn btn-jupyter{% if len(profiles == 0 %) hidden{% end %}">Delete Profile</button>
         </div>
       </div>
       <br>
-      <div id="formSection" class="form-section">
+      <div id="formSection" class="form-section hidden">
         <h2 id="formTitle"></h2>
         <form id="profileForm">
           <div class="form-group">
@@ -192,8 +196,8 @@
       btnNew.addEventListener("click", () => {
         selectedId = "";
         formTitle.textContent = "New Profile";
+        formSection.classList.remove("hidden");
         profileForm.reset();
-        formSection.classList.add("active");
       });
 
       btnEdit.addEventListener("click", () => {
@@ -204,7 +208,7 @@
           .then(res => res.json())
           .then(data => {
             formTitle.textContent = "Change Profile";
-            formSection.classList.add("active");
+            formSection.classList.remove("hidden");
 
             // Formular mit allen (auch verschachtelten) Feldern füllen
             fillForm(data, profileForm);
