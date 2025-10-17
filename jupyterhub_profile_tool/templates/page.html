@@ -137,7 +137,7 @@
                    min="1"
                    max="128"
                    value="1"
-                   title="Profile's CPU core limit.">
+                   title="Profile's CPU core limit">
           </div>
           <div class="form-group">
             <label for="options.req_memory">Memory:</label>
@@ -146,16 +146,16 @@
                    type="text"
                    pattern="^[0-9]+\s*[kKmMgGtT]?[bB]?$"
                    value="1 GB"
-                   title="Profile's memory (RAM) limit. Can include units. If no unit is set, Slurm assumes bytes.">
+                   title="Profile's memory (RAM) limit. Can include units. If no unit is set, Slurm assumes bytes">
           </div>
           <div class="form-group">
-            <label for="options.req_gres">Max. Runtime:</label>
+            <label for="options.req_gres">GRES:</label>
             <input id="options.req_gres"
                    name="options.req_gres"
                    type="text"
-                   pattern="^$"
-                   value="^(gpu:((A40:)|(A100:))?[1-8])?$"
-                   title="Generalized Resources. Currently only supports GPU spec. Either general (gpu:#amount) or specific type (gpu:A40:#amount or gpu:A100:#amount). Leave empty to run without GPUs.">
+                   pattern="^(gpu:((A40:)|(A100:))?[1-8])?$"
+                   value=""
+                   title="Generalized Resources. Currently only supports GPU spec. Either general (gpu:#amount) or specific type (gpu:A40:#amount or gpu:A100:#amount). Leave empty to run without GPUs">
           </div>
           <div class="feedback-container">
             <button type="submit" class="btn btn-jupyter">Submit</button>
