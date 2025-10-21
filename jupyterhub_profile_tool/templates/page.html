@@ -88,10 +88,10 @@
               <option value="no-profile" selected>No user profiles found</option>
             {% end %}
           </select>
-          <br>
           <div class="feedback-container">
             <button id="btnNew" class="btn btn-jupyter">New Profile</button>
             <button id="btnEdit" class="btn btn-jupyter{% if len(profiles) == 0 %} hidden{% end %}">Edit Profile</button>
+            <button id="btnCopy" class="btn btn-jupyter{% if len(profiles) == 0 %} hidden{% end %}">Copy Profile</button>
             <button id="btnDelete" class="btn btn-jupyter{% if len(profiles) == 0 %} hidden{% end %}">Delete Profile</button>
           </div>
         </div>
@@ -110,14 +110,15 @@
                      name="description"
                      type="text"
                      value="New Profile"
-                     title="Description which will appear in profile selection drop-downs. Ensuring understandability and uniqueness is users' responsibility.">
+                     title="Description will appear in profile selection drop-downs. Should be unique, brief and meaningful.">
             </div>
             <br>
             <div class="form-group">
               <label for="options.req_partition">Slurm Partition:</label>
               <select class="form-control"
                       id="options.req_partition"
-                      name="options.req_partition">
+                      name="options.req_partition"
+                      title="Slurm partition to submit JupyterHub job to.">
                 <option value="slowlane" selected>slowlane</option>
                 <option value="fastlane">fastlane</option>
               </select>
@@ -133,6 +134,7 @@
                      value="01:00:00"
                      title="Profile's maximum runtime. Accepted formats: hh:mm:ss or d-hh:mm:ss">
             </div>
+            <br>
             <div class="form-group">
               <label for="options.req_nprocs">CPU cores:</label>
               <input class="form-control"
@@ -140,10 +142,11 @@
                      name="options.req_nprocs"
                      type="number"
                      min="1"
-                     max="128"
+                     max="256"
                      value="1"
-                     title="Profile's CPU core limit">
+                     title="Profile's CPU core limit.">
             </div>
+            <br>
             <div class="form-group">
               <label for="options.req_memory">Memory:</label>
               <input class="form-control"
@@ -152,8 +155,9 @@
                      type="text"
                      pattern="^[0-9]+\s*[kKmMgGtT]?[bB]?$"
                      value="1 GB"
-                     title="Profile's memory (RAM) limit. Can include units. If no unit is set, Slurm assumes bytes">
+                     title="Profile's memory (RAM) limit. Can include units. If no unit is set, Slurm assumes bytes.">
             </div>
+            <br>
             <div class="form-group">
               <label for="options.req_gres">GRES:</label>
               <input class="form-control"
@@ -162,7 +166,7 @@
                      type="text"
                      pattern="^(gpu:((A40:)|(A100:))?[1-8])?$"
                      value=""
-                     title="Generalized Resources. Currently only supports GPU spec. Either general (gpu:#amount) or specific type (gpu:A40:#amount or gpu:A100:#amount). Leave empty to run without GPUs">
+                     title="Generalized Resources. Currently only supports GPU spec; either general (gpu:#amount) or specific type (gpu:A40:#amount or gpu:A100:#amount). Leave empty for no GPUs.">
             </div>
             <div class="feedback-container">
               <button type="submit" class="btn btn-jupyter">Submit</button>
@@ -175,6 +179,7 @@
       const profileSelect = document.getElementById("profileSelect");
       const btnNew = document.getElementById("btnNew");
       const btnEdit = document.getElementById("btnEdit");
+      const btnCopy = document.getElementById("btnCopy");
       const btnDelete = document.getElementById("btnDelete");
       const formSection = document.getElementById("formSection");
       const formTitle = document.getElementById("formTitle");
@@ -247,10 +252,39 @@
         fetch(`{{ prefix }}profiles/${selectedId}/data`)
           .then(res => res.json())
           .then(data => {
-            formTitle.textContent = "Change Profile '${data.description}'";
+            const description = data.description || "Unnamed";
+
+            const maxDescLen = 40;
+            const shortDesc = description.length > maxDescLen
+              ? description.substring(0, maxLen - 1) + "…"
+              : description;
+
+            formTitle.innerHTML = `Change Profile <i title="${description}">${shortDesc}</i>`;
             formSection.classList.remove("hidden");
 
-            // Formular mit allen (auch verschachtelten) Feldern füllen
+            fillForm(data, profileForm);
+          });
+      });
+
+      btnCopy.addEventListener("click", () => {
+        const copyId = profileSelect.value;
+        if (!copyId) return;
+        // Ensure selectedId is unset, otherwise profile could get overwritten on Submit
+        selectedId = "";
+
+        fetch(`{{ prefix }}profiles/${copyId}/data`)
+          .then(res => res.json())
+          .then(data => {
+            const description = data.description || "Unnamed";
+
+            const maxDescLen = 40;
+            const shortDesc = description.length > maxDescLen
+              ? description.substring(0, maxLen - 1) + "…"
+              : description;
+
+            formTitle.innerHTML = `New Profile based on <i title="${description}">${shortDesc}</i>`;
+            formSection.classList.remove("hidden");
+
             fillForm(data, profileForm);
           });
       });

@@ -76,10 +76,19 @@ class ProfileDeleteHandler(BaseProfileHandler):
 
 
 class ProfileManager():
-    """Performs the profile management in the background, keeping the Handlers simple"""
+    """Performs the profile management in the background, keeping the Handlers simple
+    Note on Interfaces: ProfileManager always returns payloads as Python objects including a string ID,
+    but accepts both int and string IDs as well as Python object and string payloads.
+    TODO: Ensure this is the case...
+    """
 
     class FileOpException(Exception):
         pass
+
+    clean_keys = {
+        'base': ('description', 'options'),
+        'options': ('req_partition', 'req_runtime' 'req_nprocs', 'req_mem', 'req_gres')
+    }
 
     home_base_dir = Unicode(
         "/home/",
@@ -97,17 +106,40 @@ class ProfileManager():
     def __index_to_profile_id(self, index):
         return f"prof_{index}"
 
-    def __ensure_stringified(self, profile):
-        if isinstance(profile, dict):
-            # Ensure the profile_id is removed before creating the string dump
-            profile.pop("profile_id", None)
-            profile = json.dumps(profile)
-        elif isinstance(profile, str):
-            # If `profile` is a string already, use it as-is with no further checking
-            pass
+    def __ensure_stringified(self, profile_in):
+        if isinstance(profile_in, dict) or isinstance(profile_in, list):
+            profile_out = json.dumps(profile_in)
+        elif isinstance(profile_in, str):
+            # If `profile_in` is a string already, use it as-is.
+            profile_out = profile_in
         else:
             raise ValueError(f"Unexpected profile representation: {type(profile)}. Cannot continue.")
-        return profile
+        return profile_out
+    
+    def __ensure_objectified(self, profile_in):
+        if isinstance(profile_in, str):
+            profile_out = json.loads(profile_in)
+        elif isinstance(profile_in, dict) or isinstance(profile_in, list):
+            # If `profile_in` is a python object already, use it as-is
+            profile_out = profile_in
+        else:
+            raise ValueError(f"Unexpected profile representation: {type(profile_in)}. Cannot continue.")
+        return profile_out
+
+    def __sanitize(self, profile_in, level="base"):
+        if isinstance(profile_in, list):
+            # Assume we have a list of profiles and call __sanitize recursively
+            profile_out = []
+            for element in profile_in:
+                profile_out.append(self.__sanitize(element, "base"))
+        elif isinstance(profile_in, dict):
+            profile_out = {}
+            for key in self.clean_keys[level]:
+                try:
+                    
+                    profile_out[key] = profile_in[key]
+                except KeyError:
+                    pass
 
     def __file_op(self, action, entry_index=None, new_profile=None):
         """Handles interactions with JSON profile files"""
@@ -137,7 +169,9 @@ class ProfileManager():
             app_log.debug(f"Full subprocess output: {subproc_result.stdout}")
             return subproc_result.stdout
 
-    def create_profile(self, profile):
+    def create_profile(self, profile_in):
+        profile = self.__ensure_objectified(profile_in)
+        profile = self.__sanitize(profile)
         profile_str = self.__ensure_stringified(profile)
         self.__file_op("write", new_profile=profile_str)
 
