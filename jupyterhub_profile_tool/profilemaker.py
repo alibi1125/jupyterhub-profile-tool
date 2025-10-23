@@ -9,8 +9,9 @@ import logging
 from tornado import escape, ioloop, web
 from tornado.log import app_log
 from urllib.parse import urljoin
+from schema import Schema, And, Or, Use, Regex, Optional, SchemaError
 
-from traitlets import Unicode
+from traitlets import HasTraits, Int, Unicode, Tuple
 
 from jupyterhub.services.auth import HubOAuthenticated, HubOAuthCallbackHandler
 
@@ -75,24 +76,37 @@ class ProfileDeleteHandler(BaseProfileHandler):
         self.manager_instance.delete_profile(profile_id)
 
 
-class ProfileManager():
+class ProfileManager(HasTraits):
     """Performs the profile management in the background, keeping the Handlers simple
     Note on Interfaces: ProfileManager always returns payloads as Python objects including a string ID,
     but accepts both int and string IDs as well as Python object and string payloads.
-    TODO: Ensure this is the case...
     """
 
     class FileOpException(Exception):
         pass
 
-    clean_keys = {
-        'base': ('description', 'options'),
-        'options': ('req_partition', 'req_runtime' 'req_nprocs', 'req_mem', 'req_gres')
-    }
-
     home_base_dir = Unicode(
         "/home/",
         config=True
+    )
+
+    allowed_partitions = Tuple(
+        ("slowlane", "fastlane"),
+        config=True
+    )
+
+    profile_schema = Schema(
+        {
+            "description": And(str, lambda s: (len(s)>0 and not s.isspace()), error="Description is not a string, empty or consists only of spaces"),
+            Optional("profile_id"): str,
+            "options": {
+                "req_partition": Or(*allowed_partitions, error="Unknown partition"),
+                "req_runtime": Regex(r"^([0-9]-)?[0-9]{2}:[0-9]{2}:[0-9]{2}$", error="Malformed runtime specification"),
+                "req_nprocs": And(Use(str), lambda s: s.isdigit(), lambda s: (0 < int(s) <= 256), error=f"Invalid nprocs spec, must be between 1 and 256"),
+                "req_memory": And(Regex(r"^[0-9]*[1-9]\s*[kKmMgGtT]?[bB]?$", error="Malformed memory specification"), Use(lambda s: s.upper().replace(" ","").replace("B",""))),
+                Optional("req_gres"): Regex(r"^(gpu:((A40:)|(A100:))?[1-8])?$", error="Malformed GRES specification"),
+            },
+        }
     )
 
     def __init__(self, username):
@@ -113,7 +127,7 @@ class ProfileManager():
             # If `profile_in` is a string already, use it as-is.
             profile_out = profile_in
         else:
-            raise ValueError(f"Unexpected profile representation: {type(profile)}. Cannot continue.")
+            raise ValueError(f"Unexpected profile representation: {type(profile_in)}. Cannot continue.")
         return profile_out
     
     def __ensure_objectified(self, profile_in):
@@ -126,20 +140,20 @@ class ProfileManager():
             raise ValueError(f"Unexpected profile representation: {type(profile_in)}. Cannot continue.")
         return profile_out
 
-    def __sanitize(self, profile_in, level="base"):
+    def __sanitize(self, profile_in):
         if isinstance(profile_in, list):
             # Assume we have a list of profiles and call __sanitize recursively
             profile_out = []
             for element in profile_in:
-                profile_out.append(self.__sanitize(element, "base"))
-        elif isinstance(profile_in, dict):
-            profile_out = {}
-            for key in self.clean_keys[level]:
-                try:
-                    
-                    profile_out[key] = profile_in[key]
-                except KeyError:
-                    pass
+                prof = self.profile_schema.validate(element)
+                # `profile_id` gets silently removed when sanitizing. Therefore, the calling function
+                # must add it only after running this if it is required.
+                prof.pop("profile_id", None)
+                profile_out.append(prof)
+        else:
+            profile_out = self.profile_schema.validate(profile_in)
+            profile_out.pop("profile_id", None)
+        return profile_out
 
     def __file_op(self, action, entry_index=None, new_profile=None):
         """Handles interactions with JSON profile files"""
@@ -170,14 +184,24 @@ class ProfileManager():
             return subproc_result.stdout
 
     def create_profile(self, profile_in):
-        profile = self.__ensure_objectified(profile_in)
-        profile = self.__sanitize(profile)
-        profile_str = self.__ensure_stringified(profile)
+        profile_obj = self.__ensure_objectified(profile_in)
+        try:
+            profile_obj = self.__sanitize(profile_obj)
+        except SchemaError as e:
+            app_log.error(f"Schema evaluation for new profile failed. Schema says `{e}`. Stopping to avoid damage.")
+            return
+        profile_str = self.__ensure_stringified(profile_obj)
         self.__file_op("write", new_profile=profile_str)
 
-    def update_profile(self, profile_id, new_profile):
+    def update_profile(self, profile_id, new_profile_in):
         old_profile_index = self.__profile_id_to_index(profile_id)
-        new_profile_str = self.__ensure_stringified(new_profile)
+        new_profile_obj = self.__ensure_objectified(new_profile_in)
+        try:
+            new_profile_obj = self.__sanitize(new_profile_obj)
+        except SchemaError as e:
+            app_log.error(f"Schema evaluation for updated profile (index {old_profile_index}) failed. Schema says `{e}`. Stopping to avoid damage.")
+            return
+        new_profile_str = self.__ensure_stringified(new_profile_obj)
         self.__file_op("update", entry_index=old_profile_index, new_profile=new_profile_str)
 
     def delete_profile(self, profile_id):
@@ -196,6 +220,11 @@ class ProfileManager():
             app_log.error("Could not parse the JSON entries in the profiles file.")
             loaded_profiles = []
         app_log.debug(f"Profile data structure is {loaded_profiles}")
+        try:
+            loaded_profiles = self.__sanitize(loaded_profiles)
+        except SchemaError as e:
+            app_log.error(f"Loaded profiles look to be malformed. Schema says `{e}`. Returning empty list to not break anything.")
+            loaded_profiles = []
         for index, profile in enumerate(loaded_profiles):
             if isinstance(profile, dict):
                 profile["profile_id"] = self.__index_to_profile_id(index)
