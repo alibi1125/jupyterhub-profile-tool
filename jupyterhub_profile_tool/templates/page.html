@@ -153,7 +153,7 @@
                      id="options.req_memory"
                      name="options.req_memory"
                      type="text"
-                     pattern="^[0-9]*[1-9]\s*[kKmMgGtT]?[bB]?$"
+                     pattern="^[1-9][0-9]*\s*[kKmMgGtT]?[bB]?$"
                      value="1 GB"
                      title="Profile's memory (RAM) limit. Can include units. If no unit is set, Slurm assumes bytes.">
             </div>
@@ -174,6 +174,7 @@
           </form>
         </div>
       </div>
+      <div id="errorBox" class="col-md-8 hidden"></div>
     </div>
     <script>
       const profileSelect = document.getElementById("profileSelect");
@@ -184,6 +185,7 @@
       const formSection = document.getElementById("formSection");
       const formTitle = document.getElementById("formTitle");
       const profileForm = document.getElementById("profileForm");
+      const errorBox = document.getElementById("errorBox");
       let selectedId = "";
 
       function formDataToObject(form) {
@@ -236,6 +238,11 @@
         if (!input) return "";
         let value = input.replace(/\s+/g, "").toUpperCase().replace("B","");
         return value;
+      }
+
+      function showError(message) {
+        errorBox.textContent = message;
+        errorBox.classList.remove("hidden");
       }
 
       btnNew.addEventListener("click", () => {
@@ -324,7 +331,20 @@
           credentials: "same-origin",
           body: JSON.stringify(structuredData)
         })
-        .then(() => window.location.reload());
+        .then(async res => {
+          if (!res.ok) {
+            // Fehlertext vom Server lesen
+            const err = await res.json().catch(() => ({}));
+            const msg = err.message || `Validation failed (${res.status})`;
+            showError(msg);   // Benutzerfreundliche Anzeige
+            throw new Error(msg);
+          }
+          return res.json();
+        })
+        .then(() => window.location.reload())
+        .catch(err => {
+          console.error("Form submission failed:", err);
+        });
       });
     </script>
   </body>

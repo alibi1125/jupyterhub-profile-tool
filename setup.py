@@ -7,7 +7,7 @@ setup(
     name="jupyterhub_profile_tool",
     packages=["jupyterhub_profile_tool"],
     include_package_data=True,
-    version="0.0.4.dev1",
+    version="0.0.4.dev2",
     description="""A Jupyterhub service that allows users to create, modify and delete Jupyterhub spawner profiles""",
     long_description=long_description,
     long_description_content_type="text/markdown",

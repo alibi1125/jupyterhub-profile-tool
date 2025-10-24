@@ -57,8 +57,13 @@ class ProfileCreateHandler(BaseProfileHandler):
     """Creates an entirely new profile for the current user"""
 
     def post(self):
-        data = self.request.body.decode('utf-8')
-        self.manager_instance.create_profile(data)
+        data = self.request.body.decode("utf-8")
+        try: 
+            self.manager_instance.create_profile(data)
+            self.write({"status": "OK"})
+        except SchemaError as e:
+            self.set_status(400)
+            self.write({"status": "error", "message": str(e)})
 
 
 class ProfileUpdateHandler(BaseProfileHandler):
@@ -66,7 +71,12 @@ class ProfileUpdateHandler(BaseProfileHandler):
 
     def post(self, profile_id):
         data = self.request.body.decode('utf-8')
-        self.manager_instance.update_profile(profile_id, data)
+        try:
+            self.manager_instance.update_profile(profile_id, data)
+            self.write({"status": "OK"})
+        except SchemaError as e:
+            self.set_status(400)
+            self.write({"status": "error", "message": str(e)})
 
 
 class ProfileDeleteHandler(BaseProfileHandler):
@@ -95,18 +105,9 @@ class ProfileManager(HasTraits):
         config=True
     )
 
-    profile_schema = Schema(
-        {
-            "description": And(str, lambda s: (len(s)>0 and not s.isspace()), error="Description is not a string, empty or consists only of spaces"),
-            Optional("profile_id"): str,
-            "options": {
-                "req_partition": Or(*allowed_partitions, error="Unknown partition"),
-                "req_runtime": Regex(r"^([0-9]-)?[0-9]{2}:[0-9]{2}:[0-9]{2}$", error="Malformed runtime specification"),
-                "req_nprocs": And(Use(str), lambda s: s.isdigit(), lambda s: (0 < int(s) <= 256), error=f"Invalid nprocs spec, must be between 1 and 256"),
-                "req_memory": And(Regex(r"^[0-9]*[1-9]\s*[kKmMgGtT]?[bB]?$", error="Malformed memory specification"), Use(lambda s: s.upper().replace(" ","").replace("B",""))),
-                Optional("req_gres"): Regex(r"^(gpu:((A40:)|(A100:))?[1-8])?$", error="Malformed GRES specification"),
-            },
-        }
+    max_cpu_cores = Int(
+        256,
+        config=True
     )
 
     def __init__(self, username):
@@ -129,7 +130,7 @@ class ProfileManager(HasTraits):
         else:
             raise ValueError(f"Unexpected profile representation: {type(profile_in)}. Cannot continue.")
         return profile_out
-    
+
     def __ensure_objectified(self, profile_in):
         if isinstance(profile_in, str):
             profile_out = json.loads(profile_in)
@@ -139,19 +140,36 @@ class ProfileManager(HasTraits):
         else:
             raise ValueError(f"Unexpected profile representation: {type(profile_in)}. Cannot continue.")
         return profile_out
+    
+    def __generate_schema(self):
+        profile_schema = Schema(
+            {
+                "description": And(str, lambda s: (len(s)>0 and not s.isspace()), error="Description is not a string, empty or consists only of spaces"),
+                Optional("profile_id"): str,
+                "options": {
+                    "req_partition": Or(*self.allowed_partitions, error="Unknown partition"),
+                    "req_runtime": Regex(r"^([0-9]-)?[0-9]{2}:[0-9]{2}:[0-9]{2}$", error="Malformed runtime specification"),
+                    "req_nprocs": And(Use(str), lambda s: s.isdigit(), lambda s: (1 <= int(s) <= self.max_cpu_cores), error=f"Invalid nprocs spec, must be between 1 and {self.max_cpu_cores}"),
+                    "req_memory": And(Regex(r"^[1-9][0-9]*\s*[kKmMgGtT]?[bB]?$", error="Malformed memory specification"), Use(lambda s: s.upper().replace(" ","").replace("B",""))),
+                    Optional("req_gres"): Regex(r"^(gpu:((A40:)|(A100:))?[1-8])?$", error="Malformed GRES specification"),
+                },
+            }
+        )
+        return profile_schema
 
     def __sanitize(self, profile_in):
+        schema = self.__generate_schema()
         if isinstance(profile_in, list):
             # Assume we have a list of profiles and call __sanitize recursively
             profile_out = []
             for element in profile_in:
-                prof = self.profile_schema.validate(element)
+                prof = schema.validate(element)
                 # `profile_id` gets silently removed when sanitizing. Therefore, the calling function
                 # must add it only after running this if it is required.
                 prof.pop("profile_id", None)
                 profile_out.append(prof)
         else:
-            profile_out = self.profile_schema.validate(profile_in)
+            profile_out = schema.validate(profile_in)
             profile_out.pop("profile_id", None)
         return profile_out
 
@@ -189,7 +207,7 @@ class ProfileManager(HasTraits):
             profile_obj = self.__sanitize(profile_obj)
         except SchemaError as e:
             app_log.error(f"Schema evaluation for new profile failed. Schema says `{e}`. Stopping to avoid damage.")
-            return
+            raise e
         profile_str = self.__ensure_stringified(profile_obj)
         self.__file_op("write", new_profile=profile_str)
 
@@ -200,7 +218,7 @@ class ProfileManager(HasTraits):
             new_profile_obj = self.__sanitize(new_profile_obj)
         except SchemaError as e:
             app_log.error(f"Schema evaluation for updated profile (index {old_profile_index}) failed. Schema says `{e}`. Stopping to avoid damage.")
-            return
+            raise e
         new_profile_str = self.__ensure_stringified(new_profile_obj)
         self.__file_op("update", entry_index=old_profile_index, new_profile=new_profile_str)
 
