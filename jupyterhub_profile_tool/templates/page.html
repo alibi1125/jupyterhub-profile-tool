@@ -10,9 +10,6 @@
     <link rel="stylesheet"
           href="/hub/static/css/style.min.css"
           type="text/css" />
-    <link rel="stylesheet"
-          href="/hub/static/css/page.css"
-          type="text/css" />
     <link rel="icon"
           href="/hub/static/favicon.ico"
           type="image/x-icon">
@@ -310,7 +307,7 @@
 
             const maxDescLen = 40;
             const shortDesc = description.length > maxDescLen
-              ? description.substring(0, maxLen - 1) + "…"
+              ? description.substring(0, maxDescLen - 1) + "…"
               : description;
 
             formTitle.innerHTML = `New Profile based on <i title="${description}">${shortDesc}</i>`;
