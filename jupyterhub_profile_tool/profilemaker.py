@@ -95,6 +95,11 @@ class ProfileManager(HasTraits):
     class FileOpException(Exception):
         pass
 
+    system_profile_path = Unicode(
+        "/etc/jupyterhub/common_profiles.json",
+        config=True
+    )
+
     home_base_dir = Unicode(
         "/home/",
         config=True
@@ -116,10 +121,15 @@ class ProfileManager(HasTraits):
         self.user_profile_path = os.path.join(self.home_base_dir, username, ".jupyterhub", "user_profiles.json")
 
     def __profile_id_to_index(self, profile_id):
-        return int(profile_id.strip("prof_"))
+        if profile_id.startswith("userprof_"):
+            return int(profile_id.strip("userprof_")), True
+        elif profile_id.startswith("sysprof_"):
+            return int(profile_id.strip("sysprof_")), False
+        else:
+            raise ValueError(f"{profile_id} does not look like a known profile ID")
 
-    def __index_to_profile_id(self, index):
-        return f"prof_{index}"
+    def __index_to_profile_id(self, index, user=True):
+        return f"userprof_{index}" if user else f"sysprof_{index}"
 
     def __ensure_stringified(self, profile_in):
         if isinstance(profile_in, dict) or isinstance(profile_in, list):
@@ -133,7 +143,11 @@ class ProfileManager(HasTraits):
 
     def __ensure_objectified(self, profile_in):
         if isinstance(profile_in, str):
-            profile_out = json.loads(profile_in)
+            try:
+                profile_out = json.loads(profile_in)
+            except json.JSONDecodeError as e:
+                app_log.error(f"Could not parse JSON entries in string. Reported JSON error: {e}")
+                profile_out = []
         elif isinstance(profile_in, dict) or isinstance(profile_in, list):
             # If `profile_in` is a python object already, use it as-is
             profile_out = profile_in
@@ -173,16 +187,23 @@ class ProfileManager(HasTraits):
             profile_out.pop("profile_id", None)
         return profile_out
 
-    def __file_op(self, action, entry_index=None, new_profile=None):
+    def __file_op(self, action, user=True, entry_index=None, new_profile=None):
         """Handles interactions with JSON profile files"""
-        if action not in {"read", "write", "delete", "update"}:
-            raise ValueError("`action` needs to be one of `read`, `write`, `delete`, `update`.")
+        user_actions = ("read", "write", "delete", "update")
+        system_actions = ("read")
+        if user and action not in user_actions:
+            raise ValueError(f"Allowed actions for user directory are {' '.join(user_actions)}.")
+        elif not user and action not in system_actions:
+            raise ValueError(f"Allowed actions for system directory are {' '.join(system_actions)}.")
         cmd = [
             sys.executable,
             "-m", "jupyterhub_profile_tool.userprofileworker",
-            "--path", self.user_profile_path,
             "--action", action,
             ]
+        if user:
+            cmd.extend(["--path", self.user_profile_path])
+        else:
+            cmd.extend(["--path", self.system_profile_path])
         if entry_index is not None:
             cmd.extend(["--entry_index", str(entry_index)])
         if new_profile is not None:
@@ -200,6 +221,22 @@ class ProfileManager(HasTraits):
         if action == "read":
             app_log.debug(f"Full subprocess output: {subproc_result.stdout}")
             return subproc_result.stdout
+    
+    def _get_profiles(self, user=True):
+        str_profiles = self.__file_op("read", user=user)
+        profiles = self.__ensure_objectified(str_profiles)
+        app_log.debug(f"{'User' if user else 'System'} profile data structure is {profiles}")
+        try:
+            profiles = self.__sanitize(profiles)
+        except SchemaError as e:
+            app_log.error(f"Loaded {'user' if user else 'system'} profiles look to be malformed. Schema says `{e}`. Returning empty list to not break anything.")
+            profiles = []
+        for index, profile in enumerate(profiles):
+            if isinstance(profile, dict):
+                profile["profile_id"] = self.__index_to_profile_id(index, user)
+            else:
+                app_log.error(f"Unexpected non-dict element encountered: Type {type(profile)}, content {profile}")
+        return profiles
 
     def create_profile(self, profile_in):
         profile_obj = self.__ensure_objectified(profile_in)
@@ -212,7 +249,10 @@ class ProfileManager(HasTraits):
         self.__file_op("write", new_profile=profile_str)
 
     def update_profile(self, profile_id, new_profile_in):
-        old_profile_index = self.__profile_id_to_index(profile_id)
+        old_profile_index, user = self.__profile_id_to_index(profile_id)
+        if not user:
+            app_log.error("Tried to update a system profile. This should not be attempted. Refusing.")
+            return
         new_profile_obj = self.__ensure_objectified(new_profile_in)
         try:
             new_profile_obj = self.__sanitize(new_profile_obj)
@@ -223,32 +263,18 @@ class ProfileManager(HasTraits):
         self.__file_op("update", entry_index=old_profile_index, new_profile=new_profile_str)
 
     def delete_profile(self, profile_id):
-        old_profile_index = self.__profile_id_to_index(profile_id)
+        old_profile_index, user = self.__profile_id_to_index(profile_id)
+        if not user:
+            app_log.error("Tried to delete a system profile. This should not be attempted. Refusing.")
+            return
         self.__file_op("delete", entry_index=old_profile_index)
+
+    def get_all_profiles(self):
+        return self._get_profiles(user=True).extend(self._get_profiles(user=False))
 
     def get_singular_profile(self, profile_id):
         profiles = self.get_all_profiles()
         return next((p for p in profiles if p["profile_id"] == profile_id), None)
-
-    def get_all_profiles(self):
-        profiles = self.__file_op("read")
-        try:
-            loaded_profiles = json.loads(profiles)
-        except json.JSONDecodeError:
-            app_log.error("Could not parse the JSON entries in the profiles file.")
-            loaded_profiles = []
-        app_log.debug(f"Profile data structure is {loaded_profiles}")
-        try:
-            loaded_profiles = self.__sanitize(loaded_profiles)
-        except SchemaError as e:
-            app_log.error(f"Loaded profiles look to be malformed. Schema says `{e}`. Returning empty list to not break anything.")
-            loaded_profiles = []
-        for index, profile in enumerate(loaded_profiles):
-            if isinstance(profile, dict):
-                profile["profile_id"] = self.__index_to_profile_id(index)
-            else:
-                app_log.error(f"Unexpected non-dict element encountered: Type {type(profile)}, content {profile}")
-        return loaded_profiles
 
 
 def main():

@@ -10,14 +10,20 @@
     <link rel="stylesheet"
           href="/hub/static/css/style.min.css"
           type="text/css" />
-    <link rel="icon" href="/hub/static/favicon.ico" type="image/x-icon">
+    <link rel="stylesheet"
+          href="/hub/static/css/page.css"
+          type="text/css" />
+    <link rel="icon"
+          href="/hub/static/favicon.ico"
+          type="image/x-icon">
     <meta name="description" content="JupyterHub - Profile Tool">
     <meta name="keywords" content="Jupyter, JupyterHub, Profiles, SlurmSpawner">
+    <script src="/hub/static/js/darkmode.js"></script>
   </head>
   <body>
     <noscript>
       <div id='noscript'>
-        JupyterHub requires JavaScript.
+        This JupyterHub service requires JavaScript.
         <br>
         Please enable it to proceed.
       </div>
@@ -27,9 +33,9 @@
         <span id="jupyterhub-logo" class="navbar-brand">
           <a href="{{ base_url }}">
             <img src='{{ base_url }}logo'
-                  alt='JupyterHub logo'
-                  class='jpy-logo'
-                  title='Home' />
+                 alt='JupyterHub logo'
+                 class='jpy-logo'
+                 title='Home' />
           </a>
         </span>
         <div class="collapse navbar-collapse" id="thenavbar">
@@ -173,8 +179,8 @@
             </div>
           </form>
         </div>
+        <div id="errorBox" class="col-md-8 alert alert-danger hidden"></div>
       </div>
-      <div id="errorBox" class="col-md-8 hidden"></div>
     </div>
     <script>
       const profileSelect = document.getElementById("profileSelect");
@@ -241,7 +247,7 @@
       }
 
       function showError(message) {
-        errorBox.textContent = message;
+        errorBox.textContent = `Backend schema error: ${message}`;
         errorBox.classList.remove("hidden");
       }
 
