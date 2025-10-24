@@ -88,14 +88,14 @@
                 </option>
               {% end %}
             {% else %}
-              <option value="no-profile" selected>No user profiles found</option>
+              <option value="no_profile" selected>No user profiles found</option>
             {% end %}
           </select>
           <div class="feedback-container">
-            <button id="btnNew" class="btn btn-jupyter">New Profile</button>
-            <button id="btnEdit" class="btn btn-jupyter{% if len(profiles) == 0 %} hidden{% end %}">Edit Profile</button>
-            <button id="btnCopy" class="btn btn-jupyter{% if len(profiles) == 0 %} hidden{% end %}">Copy Profile</button>
-            <button id="btnDelete" class="btn btn-jupyter{% if len(profiles) == 0 %} hidden{% end %}">Delete Profile</button>
+            <button id="btnNew" class="btn btn-jupyter" title="Create new profile from scratch">New Profile</button>
+            <button id="btnCopy" class="btn btn-jupyter" title="Copy this profile to create another">Copy Profile</button>
+            <button id="btnEdit" class="btn btn-jupyter" title="Edit this profile (replacing it when submitting)">Edit Profile</button>
+            <button id="btnDelete" class="btn btn-jupyter" title="Delete this profile">Delete Profile</button>
           </div>
         </div>
       </div>
@@ -182,8 +182,8 @@
     <script>
       const profileSelect = document.getElementById("profileSelect");
       const btnNew = document.getElementById("btnNew");
-      const btnEdit = document.getElementById("btnEdit");
       const btnCopy = document.getElementById("btnCopy");
+      const btnEdit = document.getElementById("btnEdit");
       const btnDelete = document.getElementById("btnDelete");
       const formSection = document.getElementById("formSection");
       const formTitle = document.getElementById("formTitle");
@@ -250,18 +250,21 @@
 
       function updateButtonState() {
         const selectedValue = profileSelect.value;
+        const noProfileAvail = selectedValue === "no_profile" || !selectedValue;
 
-        // kein Profil gewählt
-        if (!selectedValue) {
+        // Check for no profile selected
+        if (noProfileAvail) {
+          btnCopy.disabled = true;
           btnEdit.disabled = true;
           btnDelete.disabled = true;
           return;
         }
 
-        // prüfen, ob editierbar
+        // Check if editable
         const editable = selectedValue.startsWith("userprof_");
 
-        // Buttons aktivieren oder deaktivieren
+        // (De-)Activate buttons
+        btnCopy.disabled = !noProfileAvail;
         btnEdit.disabled = !editable;
         btnDelete.disabled = !editable;
       }
@@ -271,27 +274,6 @@
         formTitle.textContent = "New Profile";
         formSection.classList.remove("hidden");
         profileForm.reset();
-      });
-
-      btnEdit.addEventListener("click", () => {
-        selectedId = profileSelect.value;
-        if (!selectedId) return;
-
-        fetch(`{{ prefix }}profiles/${selectedId}/data`)
-          .then(res => res.json())
-          .then(data => {
-            const description = data.description || "Unnamed";
-
-            const maxDescLen = 40;
-            const shortDesc = description.length > maxDescLen
-              ? description.substring(0, maxLen - 1) + "…"
-              : description;
-
-            formTitle.innerHTML = `Change Profile <i title="${description}">${shortDesc}</i>`;
-            formSection.classList.remove("hidden");
-
-            fillForm(data, profileForm);
-          });
       });
 
       btnCopy.addEventListener("click", () => {
@@ -311,6 +293,27 @@
               : description;
 
             formTitle.innerHTML = `New Profile based on <i title="${description}">${shortDesc}</i>`;
+            formSection.classList.remove("hidden");
+
+            fillForm(data, profileForm);
+          });
+      });
+
+      btnEdit.addEventListener("click", () => {
+        selectedId = profileSelect.value;
+        if (!selectedId) return;
+
+        fetch(`{{ prefix }}profiles/${selectedId}/data`)
+          .then(res => res.json())
+          .then(data => {
+            const description = data.description || "Unnamed";
+
+            const maxDescLen = 40;
+            const shortDesc = description.length > maxDescLen
+              ? description.substring(0, maxLen - 1) + "…"
+              : description;
+
+            formTitle.innerHTML = `Change Profile <i title="${description}">${shortDesc}</i>`;
             formSection.classList.remove("hidden");
 
             fillForm(data, profileForm);
