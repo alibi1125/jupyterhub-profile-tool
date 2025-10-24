@@ -33,7 +33,7 @@ class ProfileMakerHandler(BaseProfileHandler):
 
     def get(self):
         profiles = self.manager_instance.get_all_profiles()
-        self.render("page.html", base_url="/hub/", user=self.user["name"], profiles=profiles, prefix=self.prefix, selected_profile="prof_0")
+        self.render("page.html", base_url="/hub/", user=self.user["name"], profiles=profiles, prefix=self.prefix, selected_profile="userprof_0")
 
     def post(self):
         spawner_options = {"req_nprocs": "1", "req_memory": "100mb", "req_partition": "fastlane", "req_runtime": "00:10:00"}
@@ -58,7 +58,7 @@ class ProfileCreateHandler(BaseProfileHandler):
 
     def post(self):
         data = self.request.body.decode("utf-8")
-        try: 
+        try:
             self.manager_instance.create_profile(data)
             self.write({"status": "OK"})
         except SchemaError as e:
@@ -154,7 +154,7 @@ class ProfileManager(HasTraits):
         else:
             raise ValueError(f"Unexpected profile representation: {type(profile_in)}. Cannot continue.")
         return profile_out
-    
+
     def __generate_schema(self):
         profile_schema = Schema(
             {
@@ -221,16 +221,16 @@ class ProfileManager(HasTraits):
         if action == "read":
             app_log.debug(f"Full subprocess output: {subproc_result.stdout}")
             return subproc_result.stdout
-    
+
     def _get_profiles(self, user=True):
         str_profiles = self.__file_op("read", user=user)
         profiles = self.__ensure_objectified(str_profiles)
-        app_log.debug(f"{'User' if user else 'System'} profile data structure is {profiles}")
         try:
             profiles = self.__sanitize(profiles)
         except SchemaError as e:
             app_log.error(f"Loaded {'user' if user else 'system'} profiles look to be malformed. Schema says `{e}`. Returning empty list to not break anything.")
             profiles = []
+        app_log.debug(f"{'User' if user else 'System'} profile data structure is {profiles}")
         for index, profile in enumerate(profiles):
             if isinstance(profile, dict):
                 profile["profile_id"] = self.__index_to_profile_id(index, user)
@@ -270,7 +270,9 @@ class ProfileManager(HasTraits):
         self.__file_op("delete", entry_index=old_profile_index)
 
     def get_all_profiles(self):
-        return self._get_profiles(user=True).extend(self._get_profiles(user=False))
+        user_profiles = self._get_profiles(user=True)
+        system_profiles = self._get_profiles(user=False)
+        return user_profiles + system_profiles
 
     def get_singular_profile(self, profile_id):
         profiles = self.get_all_profiles()

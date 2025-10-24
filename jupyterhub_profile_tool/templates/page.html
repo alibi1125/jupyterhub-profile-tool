@@ -251,6 +251,24 @@
         errorBox.classList.remove("hidden");
       }
 
+      function updateButtonState() {
+        const selectedValue = profileSelect.value;
+
+        // kein Profil gewählt
+        if (!selectedValue) {
+          btnEdit.disabled = true;
+          btnDelete.disabled = true;
+          return;
+        }
+
+        // prüfen, ob editierbar
+        const editable = selectedValue.startsWith("userprof_");
+
+        // Buttons aktivieren oder deaktivieren
+        btnEdit.disabled = !editable;
+        btnDelete.disabled = !editable;
+      }
+
       btnNew.addEventListener("click", () => {
         selectedId = "";
         formTitle.textContent = "New Profile";
@@ -352,6 +370,12 @@
           console.error("Form submission failed:", err);
         });
       });
+
+      // Update Button State every time the profile selection changes
+      profileSelect.addEventListener("change", updateButtonState);
+
+      // Update Button State once at load time
+      updateButtonState();
     </script>
   </body>
 </html>
