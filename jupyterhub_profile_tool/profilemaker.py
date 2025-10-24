@@ -209,7 +209,7 @@ class ProfileManager(HasTraits):
         if new_profile is not None:
             cmd.append(new_profile)
         app_log.debug(f"Full command: {' '.join(cmd)}")
-        subproc_result = subprocess.run(cmd, capture_output=True, text=True, user=self.username)
+        subproc_result = subprocess.run(cmd, capture_output=True, text=True, user=self.username if user else None)
         # When reporting problems in the subproc, we assume a two-stage approach.
         # If it returns an RC > 0, we assume something went seriously wrong and error out.
         # If it has an error output, but no non-normal RC, we forward the message as a warning, but continue.
@@ -275,8 +275,9 @@ class ProfileManager(HasTraits):
         return user_profiles + system_profiles
 
     def get_singular_profile(self, profile_id):
-        profiles = self.get_all_profiles()
-        return next((p for p in profiles if p["profile_id"] == profile_id), None)
+        index, user = self.__profile_id_to_index(profile_id)
+        profiles = self._get_profiles(user)
+        return profiles[index]
 
 
 def main():
@@ -336,10 +337,11 @@ def create_application(cmdline_args, **kwargs):
     prefix = cmdline_args["service_prefix"]
     app_log.debug(f"Using service prefix {prefix}")
     return web.Application([(prefix, ProfileMakerHandler, {"prefix": prefix}),
-                            (urljoin(prefix, "profiles/(prof_[0-9]+)/data"), ProfileGetHandler),
                             (urljoin(prefix, "profiles/create"), ProfileCreateHandler),
-                            (urljoin(prefix, "profiles/(prof_[0-9]+)/update"), ProfileUpdateHandler),
-                            (urljoin(prefix, "profiles/(prof_[0-9]+)/delete"), ProfileDeleteHandler),
+                            (urljoin(prefix, "profiles/(userprof_[0-9]+)/data"), ProfileGetHandler),
+                            (urljoin(prefix, "profiles/(sysprof_[0-9]+)/data"), ProfileGetHandler),
+                            (urljoin(prefix, "profiles/(userprof_[0-9]+)/update"), ProfileUpdateHandler),
+                            (urljoin(prefix, "profiles/(userprof_[0-9]+)/delete"), ProfileDeleteHandler),
                             (urljoin(prefix, "oauth_callback"), HubOAuthCallbackHandler),
                            ],
                            cookie_secret=cookie_secret,
