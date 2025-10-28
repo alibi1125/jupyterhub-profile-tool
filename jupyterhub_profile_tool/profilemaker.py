@@ -36,9 +36,17 @@ class ProfileMakerHandler(BaseProfileHandler):
         self.render("page.html", base_url="/hub/", user=self.user["name"], profiles=profiles, prefix=self.prefix, selected_profile="userprof_0")
 
     def post(self):
-        spawner_options = {"req_nprocs": "1", "req_memory": "100mb", "req_partition": "fastlane", "req_runtime": "00:10:00"}
+        spawner_options = {"req_nprocs": "1", "req_memory": "100M", "req_partition": "fastlane", "req_runtime": "00:10:00"}
         profile = {"description": "Test profile", "options": spawner_options}
         self.manager_instance.create_profile(profile)
+
+
+class ProfileGetAllHandler(BaseProfileHandler):
+    """Gets all profiles of the user"""
+
+    def get(self):
+        profiles = self.manager_instance.get_all_profiles()
+        self.write(profiles)
 
 
 class ProfileGetHandler(BaseProfileHandler):
@@ -337,6 +345,7 @@ def create_application(cmdline_args, **kwargs):
     prefix = cmdline_args["service_prefix"]
     app_log.debug(f"Using service prefix {prefix}")
     return web.Application([(prefix, ProfileMakerHandler, {"prefix": prefix}),
+                            (urljoin(prefix, "profiles/data"), ProfileGetAllHandler),
                             (urljoin(prefix, "profiles/create"), ProfileCreateHandler),
                             (urljoin(prefix, "profiles/(userprof_[0-9]+)/data"), ProfileGetHandler),
                             (urljoin(prefix, "profiles/(sysprof_[0-9]+)/data"), ProfileGetHandler),

@@ -250,6 +250,7 @@
 
       function updateButtonState() {
         const selectedValue = profileSelect.value;
+
         const noProfileAvail = selectedValue === "no_profile" || !selectedValue;
 
         // Check for no profile selected
@@ -264,7 +265,7 @@
         const editable = selectedValue.startsWith("userprof_");
 
         // (De-)Activate buttons
-        btnCopy.disabled = !noProfileAvail;
+        btnCopy.disabled = false;
         btnEdit.disabled = !editable;
         btnDelete.disabled = !editable;
       }
