@@ -46,7 +46,7 @@ class ProfileGetAllHandler(BaseProfileHandler):
 
     def get(self):
         profiles = self.manager_instance.get_all_profiles()
-        self.write(profiles)
+        self.write({"profiles": profiles})
 
 
 class ProfileGetHandler(BaseProfileHandler):
