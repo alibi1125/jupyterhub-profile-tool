@@ -21,6 +21,7 @@ class BaseProfileHandler(HubOAuthenticated, web.RequestHandler):
 
     @web.authenticated
     def prepare(self):
+        app_log.debug(f"{type(self).__name__}: Preparing")
         self.user = self.get_current_user()
         self.manager_instance = ProfileManager(self.user["name"])
 
@@ -39,6 +40,7 @@ class ProfileMakerHandler(BaseProfileHandler):
         spawner_options = {"req_nprocs": "1", "req_memory": "100M", "req_partition": "fastlane", "req_runtime": "00:10:00"}
         profile = {"description": "Test profile", "options": spawner_options}
         self.manager_instance.create_profile(profile)
+        self.write({"status": "OK"})
 
 
 class ProfileGetAllHandler(BaseProfileHandler):
@@ -65,6 +67,7 @@ class ProfileCreateHandler(BaseProfileHandler):
     """Creates an entirely new profile for the current user"""
 
     def post(self):
+        app_log.debug(f"Creating profile for user {self.user["name"]}.")
         data = self.request.body.decode("utf-8")
         try:
             self.manager_instance.create_profile(data)
@@ -78,6 +81,7 @@ class ProfileUpdateHandler(BaseProfileHandler):
     """Updates a given profile for the current user"""
 
     def post(self, profile_id):
+        app_log.debug(f"Updating profile {profile_id} for user {self.user["name"]}.")
         data = self.request.body.decode('utf-8')
         try:
             self.manager_instance.update_profile(profile_id, data)
@@ -91,7 +95,9 @@ class ProfileDeleteHandler(BaseProfileHandler):
     """Removes a profile for the current user"""
 
     def post(self, profile_id):
+        app_log.debug(f"Deleting profile {profile_id} for user {self.user["name"]}.")
         self.manager_instance.delete_profile(profile_id)
+        self.write({"status": "OK"})
 
 
 class ProfileManager(HasTraits):
@@ -168,6 +174,7 @@ class ProfileManager(HasTraits):
             {
                 "description": And(str, lambda s: (len(s)>0 and not s.isspace()), error="Description is not a string, empty or consists only of spaces"),
                 Optional("profile_id"): str,
+                Optional("spawner"): str,
                 "options": {
                     "req_partition": Or(*self.allowed_partitions, error="Unknown partition"),
                     "req_runtime": Regex(r"^([0-9]-)?[0-9]{2}:[0-9]{2}:[0-9]{2}$", error="Malformed runtime specification"),
@@ -182,7 +189,7 @@ class ProfileManager(HasTraits):
     def __sanitize(self, profile_in):
         schema = self.__generate_schema()
         if isinstance(profile_in, list):
-            # Assume we have a list of profiles and call __sanitize recursively
+            # Assume we have a list of profiles and validate each element individually
             profile_out = []
             for element in profile_in:
                 prof = schema.validate(element)
@@ -236,7 +243,7 @@ class ProfileManager(HasTraits):
         try:
             profiles = self.__sanitize(profiles)
         except SchemaError as e:
-            app_log.error(f"Loaded {'user' if user else 'system'} profiles look to be malformed. Schema says `{e}`. Returning empty list to not break anything.")
+            app_log.error(f"Loaded {'user' if user else 'system'} profiles look malformed. Schema says `{e}`. Returning empty list to not break anything.")
             profiles = []
         app_log.debug(f"{'User' if user else 'System'} profile data structure is {profiles}")
         for index, profile in enumerate(profiles):
@@ -285,7 +292,10 @@ class ProfileManager(HasTraits):
     def get_singular_profile(self, profile_id):
         index, user = self.__profile_id_to_index(profile_id)
         profiles = self._get_profiles(user)
-        return profiles[index]
+        try:
+            return profiles[index]
+        except IndexError:
+            return None
 
 
 def main():
