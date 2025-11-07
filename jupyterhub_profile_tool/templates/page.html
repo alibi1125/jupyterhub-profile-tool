@@ -339,7 +339,7 @@
         e.preventDefault();
         const structuredData = formDataToObject(profileForm);
 
-        if (structuredData.options.req_memory) {
+        if (structuredData.options?.req_memory) {
           structuredData.options.req_memory = normalizeMemSize(structuredData.options.req_memory)
         }
 
@@ -359,10 +359,11 @@
         })
         .then(async res => {
           if (!res.ok) {
-            // Fehlertext vom Server lesen
+            // Read error text from the server
             const err = await res.json().catch(() => ({}));
             const msg = err.message || `Validation failed (${res.status})`;
-            showError(msg);   // Benutzerfreundliche Anzeige
+            // Show on the website
+            showError(msg);
             throw new Error(msg);
           }
           return res.json();

@@ -16,6 +16,13 @@ from traitlets import HasTraits, Int, Unicode, Tuple
 from jupyterhub.services.auth import HubOAuthenticated, HubOAuthCallbackHandler
 
 
+class DataError(Exception):
+    """Blanket error class to cover different failure cases ProfileManager can find. In general, requests that end with this error
+    had something wrong with the associated data and were safely discarded. ProfileManager will add a message to present to the user.
+    """
+    pass
+
+
 class BaseProfileHandler(HubOAuthenticated, web.RequestHandler):
     """Base handler class for this program. Does the mixin of hub authentication, creates a ProfileManager instance in its prepare method."""
 
@@ -55,12 +62,12 @@ class ProfileGetHandler(BaseProfileHandler):
     """Gets the user's profiles"""
 
     def get(self, profile_id):
-        profile = self.manager_instance.get_singular_profile(profile_id)
-        if profile is None:
+        try:
+            profile = self.manager_instance.get_singular_profile(profile_id)
+            self.write(profile)
+        except DataError as e:
             self.set_status(404)
-            self.finish({"error": "Profile not found"})
-            return
-        self.write(profile)
+            self.write({"status": "error", "message": str(e)})
 
 
 class ProfileCreateHandler(BaseProfileHandler):
@@ -72,7 +79,7 @@ class ProfileCreateHandler(BaseProfileHandler):
         try:
             self.manager_instance.create_profile(data)
             self.write({"status": "OK"})
-        except SchemaError as e:
+        except (DataError) as e:
             self.set_status(400)
             self.write({"status": "error", "message": str(e)})
 
@@ -86,7 +93,7 @@ class ProfileUpdateHandler(BaseProfileHandler):
         try:
             self.manager_instance.update_profile(profile_id, data)
             self.write({"status": "OK"})
-        except SchemaError as e:
+        except DataError as e:
             self.set_status(400)
             self.write({"status": "error", "message": str(e)})
 
@@ -96,8 +103,12 @@ class ProfileDeleteHandler(BaseProfileHandler):
 
     def post(self, profile_id):
         app_log.debug(f"Deleting profile {profile_id} for user {self.user["name"]}.")
-        self.manager_instance.delete_profile(profile_id)
-        self.write({"status": "OK"})
+        try:
+            self.manager_instance.delete_profile(profile_id)
+            self.write({"status": "OK"})
+        except DataError as e:
+            self.set_status(400)
+            self.write({"status": "error", "message": str(e)})
 
 
 class ProfileManager(HasTraits):
@@ -131,6 +142,7 @@ class ProfileManager(HasTraits):
 
     def __init__(self, username):
         app_log.debug(f"Instantiating profile manager for user {username}")
+        self.__generate_schema()
         self.username = username
         self.user_profile_path = os.path.join(self.home_base_dir, username, ".jupyterhub", "user_profiles.json")
 
@@ -161,7 +173,7 @@ class ProfileManager(HasTraits):
                 profile_out = json.loads(profile_in)
             except json.JSONDecodeError as e:
                 app_log.error(f"Could not parse JSON entries in string. Reported JSON error: {e}")
-                profile_out = []
+                raise e
         elif isinstance(profile_in, dict) or isinstance(profile_in, list):
             # If `profile_in` is a python object already, use it as-is
             profile_out = profile_in
@@ -170,7 +182,8 @@ class ProfileManager(HasTraits):
         return profile_out
 
     def __generate_schema(self):
-        profile_schema = Schema(
+        """Creates a new profile_schema for the instance. Note: The schema must be created at runtime because it uses traitlets."""
+        self.profile_schema = Schema(
             {
                 "description": And(str, lambda s: (len(s)>0 and not s.isspace()), error="Description is not a string, empty or consists only of spaces"),
                 Optional("profile_id"): str,
@@ -184,23 +197,23 @@ class ProfileManager(HasTraits):
                 },
             }
         )
-        return profile_schema
 
     def __sanitize(self, profile_in):
-        schema = self.__generate_schema()
-        if isinstance(profile_in, list):
-            # Assume we have a list of profiles and validate each element individually
-            profile_out = []
-            for element in profile_in:
-                prof = schema.validate(element)
-                # `profile_id` gets silently removed when sanitizing. Therefore, the calling function
-                # must add it only after running this if it is required.
-                prof.pop("profile_id", None)
-                profile_out.append(prof)
-        else:
-            profile_out = schema.validate(profile_in)
-            profile_out.pop("profile_id", None)
+        profile_out = self.profile_schema.validate(profile_in)
+        profile_out.pop("profile_id", None)
         return profile_out
+
+    def __sanitize_list(self, profiles_in):
+        profiles_out = []
+        error_stash = []
+        for element in profiles_in:
+            try:
+                profiles_out.append(self.__sanitize(element))
+            except SchemaError as e:
+                # In some contexts, a subset of profiles being malformed and silently discarded may be acceptable.
+                # Therefore, we store the errors and continue, leaving it to the caller to decide if everything should be discarded or not.
+                error_stash.append(e)
+        return profiles_out, error_stash
 
     def __file_op(self, action, user=True, entry_index=None, new_profile=None):
         """Handles interactions with JSON profile files"""
@@ -236,52 +249,64 @@ class ProfileManager(HasTraits):
         if action == "read":
             app_log.debug(f"Full subprocess output: {subproc_result.stdout}")
             return subproc_result.stdout
+    
+    def __log_and_raise(self, msg):
+        app_log.error(msg)
+        raise DataError(msg)
 
     def _get_profiles(self, user=True):
         str_profiles = self.__file_op("read", user=user)
-        profiles = self.__ensure_objectified(str_profiles)
         try:
-            profiles = self.__sanitize(profiles)
-        except SchemaError as e:
-            app_log.error(f"Loaded {'user' if user else 'system'} profiles look malformed. Schema says `{e}`. Returning empty list to not break anything.")
+            profiles = self.__ensure_objectified(str_profiles)
+        except json.JSONDecodeError as e:
+            app_log.error(f"Loaded {'user' if user else 'system'} profiles could not be parsed as JSON. Returning empty list to not break anything.")
             profiles = []
+        profiles, errors = self.__sanitize_list(profiles)
+        if len(errors) > 0:
+            app_log.error(f"Loaded {'user' if user else 'system'} profiles look partially malformed. Schema reports the following: {"\n".join(errors)}. Returning well-formed profiles only.")
         app_log.debug(f"{'User' if user else 'System'} profile data structure is {profiles}")
         for index, profile in enumerate(profiles):
-            if isinstance(profile, dict):
-                profile["profile_id"] = self.__index_to_profile_id(index, user)
-            else:
-                app_log.error(f"Unexpected non-dict element encountered: Type {type(profile)}, content {profile}")
+            # No more need for type checking. __sanitize takes care of that.
+            profile["profile_id"] = self.__index_to_profile_id(index, user)
         return profiles
 
     def create_profile(self, profile_in):
-        profile_obj = self.__ensure_objectified(profile_in)
+        try:
+            profile_obj = self.__ensure_objectified(profile_in)
+        except json.JSONDecodeError:
+            self.__log_and_raise("New profile`s specs could not be parsed. Stopping without changes.")
         try:
             profile_obj = self.__sanitize(profile_obj)
         except SchemaError as e:
-            app_log.error(f"Schema evaluation for new profile failed. Schema says `{e}`. Stopping to avoid damage.")
-            raise e
+            self.__log_and_raise(f"Schema evaluation for new profile failed. Schema says `{e}`. Stopping to avoid damage.")
         profile_str = self.__ensure_stringified(profile_obj)
         self.__file_op("write", new_profile=profile_str)
 
     def update_profile(self, profile_id, new_profile_in):
-        old_profile_index, user = self.__profile_id_to_index(profile_id)
+        try:
+            old_profile_index, user = self.__profile_id_to_index(profile_id)
+        except ValueError as e:
+            self.__log_and_raise("Profile ID invalid. Stopping without changes.")
         if not user:
-            app_log.error("Tried to update a system profile. This should not be attempted. Refusing.")
-            return
-        new_profile_obj = self.__ensure_objectified(new_profile_in)
+            self.__log_and_raise("Tried to update a system profile. This should not be attempted. Refusing.")
+        try:
+            new_profile_obj = self.__ensure_objectified(new_profile_in)
+        except json.JSONDecodeError as e:
+            self.__log_and_raise("Updated profile`s specs could not be parsed. Stopping without changes.")
         try:
             new_profile_obj = self.__sanitize(new_profile_obj)
         except SchemaError as e:
-            app_log.error(f"Schema evaluation for updated profile (index {old_profile_index}) failed. Schema says `{e}`. Stopping to avoid damage.")
-            raise e
+            self.__log_and_raise(f"Schema evaluation for updated profile failed. Schema says `{e}`. Stopping to avoid damage.")
         new_profile_str = self.__ensure_stringified(new_profile_obj)
         self.__file_op("update", entry_index=old_profile_index, new_profile=new_profile_str)
 
     def delete_profile(self, profile_id):
-        old_profile_index, user = self.__profile_id_to_index(profile_id)
+        try:
+            old_profile_index, user = self.__profile_id_to_index(profile_id)
+        except ValueError:
+            self.__log_and_raise("Profile ID invalid. Stopping without changes.")
         if not user:
-            app_log.error("Tried to delete a system profile. This should not be attempted. Refusing.")
-            return
+            self.__log_and_raise("Tried to delete a system profile. This should not be attempted. Refusing.")
         self.__file_op("delete", entry_index=old_profile_index)
 
     def get_all_profiles(self):
@@ -290,12 +315,15 @@ class ProfileManager(HasTraits):
         return user_profiles + system_profiles
 
     def get_singular_profile(self, profile_id):
-        index, user = self.__profile_id_to_index(profile_id)
+        try:
+            index, user = self.__profile_id_to_index(profile_id)
+        except ValueError:
+            self.__log_and_raise("Profile ID invalid.")
         profiles = self._get_profiles(user)
         try:
             return profiles[index]
         except IndexError:
-            return None
+            self.__log_and_raise(f"Index out of bounds. List length is {len(profiles)}, requested index is {index}.")
 
 
 def main():
