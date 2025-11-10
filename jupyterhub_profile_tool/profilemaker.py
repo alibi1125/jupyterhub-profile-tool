@@ -6,8 +6,8 @@ import sys
 import binascii
 import logging
 
-from tornado import escape, ioloop, web
-from tornado.log import app_log
+from tornado import ioloop, web
+from tornado.log import app_log, access_log, gen_log
 from urllib.parse import urljoin
 from schema import Schema, And, Or, Use, Regex, Optional, SchemaError
 
@@ -31,6 +31,16 @@ class BaseProfileHandler(HubOAuthenticated, web.RequestHandler):
         app_log.debug(f"{type(self).__name__}: Preparing")
         self.user = self.get_current_user()
         self.manager_instance = ProfileManager(self.user["name"])
+    
+    # def check_xsrf_cookie(self):
+    #     try:
+    #         super().check_xsrf_cookie()
+    #     except web.HTTPError as e:
+    #         if e.status_code == 403:
+    #             self.set_status(403)
+    #             self.finish({"error": "Invalid or missing XSRF token"})
+    #         else:
+    #             raise
 
 
 class ProfileMakerHandler(BaseProfileHandler):
@@ -243,7 +253,7 @@ class ProfileManager(HasTraits):
         # If it has an error output, but no non-normal RC, we forward the message as a warning, but continue.
         if subproc_result.returncode > 0:
             app_log.error(f"Errors encountered in subprocess: {subproc_result.stderr}")
-            raise self.FileOpException()
+            raise self.FileOpException(rc=subproc_result.returncode, error_message=subproc_result.stderr)
         elif subproc_result.stderr != "":
             app_log.warning(f"Problems encountered in subprocess: {subproc_result.stderr}")
         if action == "read":
@@ -298,7 +308,12 @@ class ProfileManager(HasTraits):
         except SchemaError as e:
             self.__log_and_raise(f"Schema evaluation for updated profile failed. Schema says `{e}`. Stopping to avoid damage.")
         new_profile_str = self.__ensure_stringified(new_profile_obj)
-        self.__file_op("update", entry_index=old_profile_index, new_profile=new_profile_str)
+        try:
+            self.__file_op("update", entry_index=old_profile_index, new_profile=new_profile_str)
+        except self.FileOpException as e:
+            if e.rc == 78:
+                self.__log_and_raise(f"Profile index {old_profile_index} does not exist. Stopping without changes.")
+            raise e
 
     def delete_profile(self, profile_id):
         try:
@@ -307,7 +322,12 @@ class ProfileManager(HasTraits):
             self.__log_and_raise("Profile ID invalid. Stopping without changes.")
         if not user:
             self.__log_and_raise("Tried to delete a system profile. This should not be attempted. Refusing.")
-        self.__file_op("delete", entry_index=old_profile_index)
+        try:
+            self.__file_op("delete", entry_index=old_profile_index)
+        except self.FileOpException as e:
+            if e.rc == 78:
+                self.__log_and_raise(f"Profile index {old_profile_index} does not exist. Stopping without changes.")
+            raise e
 
     def get_all_profiles(self):
         user_profiles = self._get_profiles(user=True)
@@ -334,6 +354,10 @@ def main():
     app_log.addHandler(logging.handlers.SysLogHandler("/dev/log"))
     if args["debug"]:
         app_log.setLevel("DEBUG")
+        access_log.addHandler(logging.handlers.SysLogHandler("/dev/log"))
+        access_log.setLevel("DEBUG")
+        gen_log.addHandler(logging.handlers.SysLogHandler("/dev/log"))
+        gen_log.setLevel("DEBUG")
     else:
         app_log.setLevel("INFO")
     app_log.info(f"Working directory is {os.getcwd()}")

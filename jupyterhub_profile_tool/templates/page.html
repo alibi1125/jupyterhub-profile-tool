@@ -270,6 +270,22 @@
         btnDelete.disabled = !editable;
       }
 
+      function safeFetch(url, options = {}) {
+        const token = getXsrfToken();
+        const headers = new Headers(options.headers || {});
+
+        // Only append XSRF token when it actually exists
+        if (token) {
+          headers.append("X-XSRFToken", token);
+        }
+
+        return fetch(url, {
+          ...options,
+          headers,
+          credentials: "include",
+        });
+      }
+
       btnNew.addEventListener("click", () => {
         selectedId = "";
         formTitle.textContent = "New Profile";
@@ -308,11 +324,10 @@
         fetch(`{{ prefix }}profiles/${selectedId}/data`)
           .then(res => res.json())
           .then(data => {
-            const description = data.description || "Unnamed";
-
             const maxDescLen = 40;
+            const description = data.description || "Unnamed";
             const shortDesc = description.length > maxDescLen
-              ? description.substring(0, maxLen - 1) + "…"
+              ? description.substring(0, maxDescLen - 1) + "…"
               : description;
 
             formTitle.innerHTML = `Change Profile <i title="${description}">${shortDesc}</i>`;
@@ -325,12 +340,10 @@
       btnDelete.addEventListener("click", () => {
         selectedId = profileSelect.value;
         if (!selectedId) return;
-        if (!confirm("Are you sure to delete this profile?")) return;
+        if (!confirm("Are you sure you want to delete this profile?")) return;
 
-        fetch(`{{ prefix }}profiles/${selectedId}/delete`, {
-          method: "POST",
-          headers: { "X-XSRFToken": getXsrfToken() },
-          credentials: "same-origin"
+        safeFetch(`{{ prefix }}profiles/${selectedId}/delete`, {
+          method: "POST"
         })
         .then(() => window.location.reload());
       });
@@ -340,7 +353,7 @@
         const structuredData = formDataToObject(profileForm);
 
         if (structuredData.options?.req_memory) {
-          structuredData.options.req_memory = normalizeMemSize(structuredData.options.req_memory)
+          structuredData.options.req_memory = normalizeMemSize(structuredData.options.req_memory);
         }
 
         const isNew = selectedId === "";
@@ -348,13 +361,9 @@
           ? "{{ prefix }}profiles/create"
           : `{{ prefix }}profiles/${selectedId}/update`;
 
-        fetch(url, {
+        safeFetch(url, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-XSRFToken": getXsrfToken()
-          },
-          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(structuredData)
         })
         .then(async res => {

@@ -21,20 +21,25 @@ def main():
         content_list = json.loads(content)
     except json.JSONDecodeError:
         sys.stderr.write(f"Decode error. {args['path']} seems to not be a valid JSON file.")
-        sys.exit(1)
+        sys.exit(65)
         return
     if type(content_list) != list:
         sys.stderr.write(f"Content of {args['path']} is not a list after loading it. This is unexpected. Not changing anything.")
-        sys.exit(1)
+        sys.exit(65)
         return
     if args['action'] == 'delete':
-        content_list.pop(args['entry_index'])
+        try:
+            content_list.pop(args['entry_index'])
+        except IndexError:
+            sys.stderr.write(f"Index {args['entry_index']} does not exist. Doing nothing.")
+            sys.exit(78)
+            return
     else:
         try:
             entry_dict = json.loads(args['json_entry'])
         except json.JSONDecodeError:
             sys.stderr.write(f"JSON entry in argument could not be parsed. Doing nothing.")
-            sys.exit(1)
+            sys.exit(66)
             return
         if args['action'] == 'write':
             if args['entry_index']:
@@ -42,7 +47,12 @@ def main():
             else:
                 content_list.append(entry_dict)
         elif args['action'] == 'update':
-            content_list[args['entry_index']] = entry_dict
+            try:
+                content_list[args['entry_index']] = entry_dict
+            except IndexError:
+                sys.stderr.write(f"Index {args['entry_index']} does not exist. Doing nothing.")
+                sys.exit(78)
+                return
         else:
             raise NotImplementedError(f"action argument {args['action']} unknown.")
     with open(args['path'], 'w') as file:
@@ -80,11 +90,11 @@ def parse_arguments():
     args = parser.parse_args()
     if args.action in {'write', 'update'} and args.json_entry == '':
         sys.stderr.write("Cannot process writes or updates without data element to write.")
-        sys.exit(1)
+        sys.exit(64)
         return
     if args.action in {'update', 'delete'} and args.entry_index is None:
         sys.stderr.write("Cannot process updates or deletes without a target.")
-        sys.exit(1)
+        sys.exit(64)
         return
     # We want to return a dict-like argument representation, which is why vars(...) is necessary (see argparse documentation)
     return vars(parser.parse_args())
