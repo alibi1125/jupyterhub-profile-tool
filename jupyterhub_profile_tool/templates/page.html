@@ -88,7 +88,7 @@
                 </option>
               {% end %}
             {% else %}
-              <option value="no_profile" selected>No user profiles found</option>
+              <option value="invalid" selected>No user profiles found</option>
             {% end %}
           </select>
           <div class="feedback-container">
@@ -176,6 +176,7 @@
             </div>
           </form>
         </div>
+        <br>
         <div id="errorBox" class="col-md-8 alert alert-danger hidden"></div>
       </div>
     </div>
@@ -251,7 +252,7 @@
       function updateButtonState() {
         const selectedValue = profileSelect.value;
 
-        const noProfileAvail = selectedValue === "no_profile" || !selectedValue;
+        const noProfileAvail = selectedValue === "invalid" || !selectedValue;
 
         // Check for no profile selected
         if (noProfileAvail) {
@@ -270,7 +271,7 @@
         btnDelete.disabled = !editable;
       }
 
-      function safeFetch(url, options = {}) {
+      function safePost(url, options = {}) {
         const token = getXsrfToken();
         const headers = new Headers(options.headers || {});
 
@@ -279,11 +280,44 @@
           headers.append("X-XSRFToken", token);
         }
 
-        return fetch(url, {
+        fetch(url, {
           ...options,
           headers,
           credentials: "include",
-        });
+          method: "POST"
+          })
+          .then(async res => {
+            if (!res.ok) {
+              // Read error text from the server
+              const err = await res.json().catch(() => ({}));
+              const msg = err.message || `Submission failed with general error (${res.status})`;
+              // Show on the website
+              showError(msg);
+              throw new Error(msg);
+            }
+            return res.json();
+          })
+          .then(() => window.location.reload())
+          .catch(err => {
+            console.error(`Submission to ${url} failed:`, err);
+          });
+      }
+
+      function safeGetProfile(url, idString) {
+        fetch(url)
+          .then(res => res.json())
+          .then(data => {
+            const maxDescLen = 40;
+            const description = data.description || "Unnamed";
+            const shortDesc = description.length > maxDescLen
+              ? description.substring(0, maxDescLen - 1) + "…"
+              : description;
+
+            formTitle.innerHTML = `${idString} <i title="${description}">${shortDesc}</i>`;
+            formSection.classList.remove("hidden");
+
+            fillForm(data, profileForm);
+          });
       }
 
       btnNew.addEventListener("click", () => {
@@ -299,42 +333,14 @@
         // Ensure selectedId is unset, otherwise profile could get overwritten on Submit
         selectedId = "";
 
-        fetch(`{{ prefix }}profiles/${copyId}/data`)
-          .then(res => res.json())
-          .then(data => {
-            const description = data.description || "Unnamed";
-            data.description = data.description + " - copy";
-
-            const maxDescLen = 40;
-            const shortDesc = description.length > maxDescLen
-              ? description.substring(0, maxDescLen - 1) + "…"
-              : description;
-
-            formTitle.innerHTML = `New Profile based on <i title="${description}">${shortDesc}</i>`;
-            formSection.classList.remove("hidden");
-
-            fillForm(data, profileForm);
-          });
+        safeGetProfile(`{{ prefix }}profiles/${copyId}/data`, "New Profile based on");
       });
 
       btnEdit.addEventListener("click", () => {
         selectedId = profileSelect.value;
         if (!selectedId) return;
 
-        fetch(`{{ prefix }}profiles/${selectedId}/data`)
-          .then(res => res.json())
-          .then(data => {
-            const maxDescLen = 40;
-            const description = data.description || "Unnamed";
-            const shortDesc = description.length > maxDescLen
-              ? description.substring(0, maxDescLen - 1) + "…"
-              : description;
-
-            formTitle.innerHTML = `Change Profile <i title="${description}">${shortDesc}</i>`;
-            formSection.classList.remove("hidden");
-
-            fillForm(data, profileForm);
-          });
+        safeGetProfile(`{{ prefix }}profiles/${selectedId}/data`, "Change Profile");
       });
 
       btnDelete.addEventListener("click", () => {
@@ -342,10 +348,7 @@
         if (!selectedId) return;
         if (!confirm("Are you sure you want to delete this profile?")) return;
 
-        safeFetch(`{{ prefix }}profiles/${selectedId}/delete`, {
-          method: "POST"
-        })
-        .then(() => window.location.reload());
+        safePost(`{{ prefix }}profiles/${selectedId}/delete`, {});
       });
 
       profileForm.addEventListener("submit", (e) => {
@@ -361,25 +364,9 @@
           ? "{{ prefix }}profiles/create"
           : `{{ prefix }}profiles/${selectedId}/update`;
 
-        safeFetch(url, {
-          method: "POST",
+        safePost(url, {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(structuredData)
-        })
-        .then(async res => {
-          if (!res.ok) {
-            // Read error text from the server
-            const err = await res.json().catch(() => ({}));
-            const msg = err.message || `Validation failed (${res.status})`;
-            // Show on the website
-            showError(msg);
-            throw new Error(msg);
-          }
-          return res.json();
-        })
-        .then(() => window.location.reload())
-        .catch(err => {
-          console.error("Form submission failed:", err);
         });
       });
 

@@ -28,19 +28,7 @@ class BaseProfileHandler(HubOAuthenticated, web.RequestHandler):
 
     @web.authenticated
     def prepare(self):
-        app_log.debug(f"{type(self).__name__}: Preparing")
-        self.user = self.get_current_user()
-        self.manager_instance = ProfileManager(self.user["name"])
-    
-    # def check_xsrf_cookie(self):
-    #     try:
-    #         super().check_xsrf_cookie()
-    #     except web.HTTPError as e:
-    #         if e.status_code == 403:
-    #             self.set_status(403)
-    #             self.finish({"error": "Invalid or missing XSRF token"})
-    #         else:
-    #             raise
+        self.manager_instance = ProfileManager(self.current_user["name"])
 
 
 class ProfileMakerHandler(BaseProfileHandler):
@@ -51,7 +39,7 @@ class ProfileMakerHandler(BaseProfileHandler):
 
     def get(self):
         profiles = self.manager_instance.get_all_profiles()
-        self.render("page.html", base_url="/hub/", user=self.user["name"], profiles=profiles, prefix=self.prefix, selected_profile="userprof_0")
+        self.render("page.html", base_url="/hub/", user=self.current_user["name"], profiles=profiles, prefix=self.prefix, selected_profile="userprof_0")
 
     def post(self):
         spawner_options = {"req_nprocs": "1", "req_memory": "100M", "req_partition": "fastlane", "req_runtime": "00:10:00"}
@@ -84,7 +72,7 @@ class ProfileCreateHandler(BaseProfileHandler):
     """Creates an entirely new profile for the current user"""
 
     def post(self):
-        app_log.debug(f"Creating profile for user {self.user["name"]}.")
+        app_log.debug(f"Creating profile for user {self.current_user["name"]}.")
         data = self.request.body.decode("utf-8")
         try:
             self.manager_instance.create_profile(data)
@@ -98,7 +86,7 @@ class ProfileUpdateHandler(BaseProfileHandler):
     """Updates a given profile for the current user"""
 
     def post(self, profile_id):
-        app_log.debug(f"Updating profile {profile_id} for user {self.user["name"]}.")
+        app_log.debug(f"Updating profile {profile_id} for user {self.current_user["name"]}.")
         data = self.request.body.decode('utf-8')
         try:
             self.manager_instance.update_profile(profile_id, data)
@@ -112,7 +100,7 @@ class ProfileDeleteHandler(BaseProfileHandler):
     """Removes a profile for the current user"""
 
     def post(self, profile_id):
-        app_log.debug(f"Deleting profile {profile_id} for user {self.user["name"]}.")
+        app_log.debug(f"Deleting profile {profile_id} for user {self.current_user["name"]}.")
         try:
             self.manager_instance.delete_profile(profile_id)
             self.write({"status": "OK"})
