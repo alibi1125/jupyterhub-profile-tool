@@ -39,7 +39,12 @@ class ProfileMakerHandler(BaseProfileHandler):
 
     def get(self):
         profiles = self.manager_instance.get_all_profiles()
-        self.render("page.html", base_url="/hub/", user=self.current_user["name"], profiles=profiles, prefix=self.prefix, selected_profile="userprof_0")
+        self.render("page.html",
+                    base_url="/hub/",
+                    user=self.current_user["name"],
+                    profiles=profiles,
+                    prefix=self.prefix,
+                    selected_profile="userprof_0")
 
     def post(self):
         spawner_options = {"req_nprocs": "1", "req_memory": "100M", "req_partition": "fastlane", "req_runtime": "00:10:00"}
