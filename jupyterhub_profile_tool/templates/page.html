@@ -85,14 +85,10 @@
         <div class="col-md-8">
           <label for="profileSelect">Select a job profile:</label>
           <select class="form-control" id="profileSelect" required autofocus>
-            {% if len(profiles) > 0 %}
-              {% for profile in profiles %}
-                <option value="{{ profile['profile_id'] }}" {% if profile['profile_id'] == selected_profile %}selected{% end %}>
-                  {{ profile['description'] }}
-                </option>
-              {% end %}
-            {% else %}
-              <option value="invalid" selected>No user profiles found</option>
+            {% for profile in profiles %}
+              <option value="{{ profile[1] }}" title="{{ profile[2] }}" {{ profile[3] }}>
+                {{ profile[0] }}
+              </option>
             {% end %}
           </select>
           <div class="feedback-container">
