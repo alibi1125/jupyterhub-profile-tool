@@ -65,9 +65,8 @@ class ProfileMakerHandler(BaseProfileHandler):
         self.render("page.html",
                     base_url="/hub/",
                     user=self.current_user["name"],
-                    profiles=profiles,
-                    prefix=self.prefix,
-                    selected_profile="userprof_0")
+                    profiles=profiles_for_render,
+                    prefix=self.prefix)
 
 # POST action on this endpoint was used for testing only; permanently disable it for productive use.
 #     def post(self):
