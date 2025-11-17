@@ -38,7 +38,7 @@ class ProfileMakerHandler(BaseProfileHandler):
     def _fmt_description(self, spawner, options):
         option_elements = [ f"{k[4:] if k.startswith('req_') else k}: {v}" for k, v in options.items() if v ]
         return f"{spawner} profile settings {', '.join(option_elements)}"
-    
+
     def _prepare_profile(self, profile):
         try:
             spawner = profile["spawner"]
@@ -80,9 +80,12 @@ class ProfileGetAllHandler(BaseProfileHandler):
     """Gets all profiles of the user"""
 
     def get(self):
-        profiles = self.manager_instance.get_all_profiles()
-        self.write({"profiles": profiles})
-
+        try:
+            profiles = self.manager_instance.get_all_profiles()
+            self.write({"profiles": profiles})
+        except DataError as e:
+            self.set_status(404)
+            self.write({"status": "error", "message": str(e)})
 
 class ProfileGetHandler(BaseProfileHandler):
     """Gets the user's profiles"""
@@ -275,7 +278,7 @@ class ProfileManager(HasTraits):
         if action == "read":
             app_log.debug(f"Full subprocess output: {subproc_result.stdout}")
             return subproc_result.stdout
-    
+
     def __log_and_raise(self, msg):
         app_log.error(msg)
         raise DataError(msg)
