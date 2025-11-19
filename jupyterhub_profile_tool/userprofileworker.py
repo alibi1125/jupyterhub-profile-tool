@@ -1,4 +1,4 @@
-import sys
+import sys, os
 import argparse
 import json
 
@@ -9,6 +9,11 @@ def main():
             content = file.read()
     except FileNotFoundError:
         sys.stderr.write(f"Could not find {args['path']}. Creating it.")
+        try:
+            os.makedirs(os.path.dirname(args['path']), exist_ok=True)
+        except PermissionError:
+            sys.stderr.write(f"Could not create parent dirs for {args['path']} due to lacking permissions.")
+            sys.exit(13)
         with open(args['path'], 'w') as file:
             file.write('[]')
         content = "[]"

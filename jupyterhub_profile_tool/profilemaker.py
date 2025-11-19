@@ -87,6 +87,7 @@ class ProfileGetAllHandler(BaseProfileHandler):
             self.set_status(404)
             self.write({"status": "error", "message": str(e)})
 
+
 class ProfileGetHandler(BaseProfileHandler):
     """Gets the user's profiles"""
 
