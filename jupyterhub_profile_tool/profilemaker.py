@@ -380,7 +380,7 @@ def main():
         gen_log.setLevel("DEBUG")
     else:
         app_log.setLevel("INFO")
-    app_log.info(f"Working directory is {os.getcwd()}")
+    app_log.info(f"Working directory: {os.getcwd()}")
     application = create_application(cmdline_args=args)
     application.listen(args["port"])
     ioloop.IOLoop.current().start()
@@ -389,32 +389,33 @@ def main():
 def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--service-prefix",
-        "-s",
-        default=os.environ.get("JUPYTERHUB_SERVICE_PREFIX", "/"),
-        help="application API prefix",
-    )
-    parser.add_argument(
-        "--port",
-        "-p",
-        default=8003,
-        help="port for API to listen on",
-        type=int
-    )
-    parser.add_argument(
         "--cookie-secret-file",
+        help="Location of JupyterHub's cookie secret",
+        type=str,
         required=True,
-        help="Location of JupyterHub's cookie secret"
     )
     parser.add_argument(
         "--home-base-dir",
+        help="Absolute path to the home directory location. Users` homes are derived as home-base-dir/username.",
+        type=str,
         required=True,
-        help="Absolute path to the home directory location. Users` homes are derived as home-base-dir/username."
+    )
+    parser.add_argument(
+        "--service-prefix",
+        help="Application API prefix",
+        default=os.environ.get("JUPYTERHUB_SERVICE_PREFIX", "/"),
+        type=str,
+    )
+    parser.add_argument(
+        "--port",
+        help="Port for API to listen on",
+        default=8003,
+        type=int,
     )
     parser.add_argument(
         "--debug",
+        help="Activate the debug logging level",
         action="store_true",
-        help="Activate the debug logging level"
     )
     return vars(parser.parse_args())
 
@@ -438,7 +439,3 @@ def create_application(cmdline_args, **kwargs):
                            cookie_secret=cookie_secret,
                            template_path="templates",
                            login_url="/hub/login")
-
-
-if __name__ == "__main__":
-    main()

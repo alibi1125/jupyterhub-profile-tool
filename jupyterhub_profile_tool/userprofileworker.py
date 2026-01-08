@@ -70,25 +70,25 @@ def parse_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--path',
-        help='Path to the user profile JSON. Must always be supplied.',
+        help='Path to the user profile JSON. Required.',
         type=str,
         required=True,
     )
     parser.add_argument(
         '--action',
-        help='Select this program`s operation: read all JSON entries, write given entry, or delete given entry. Must always be supplied.',
+        help='Select operation: read all JSON entries, write given entry, update given entry, or delete given entry. Required.',
         choices=['read', 'write', 'delete', 'update'],
         required=True,
     )
     parser.add_argument(
         '--entry_index',
-        help='Integer containing the index of the profile to change. Mandatory for `update` and `delete`, optional for `write`, ignored for `read`.',
+        help='Index of the profile to change. Mandatory for update and delete, optional for write, ignored for read.',
         type=int,
         default=None,
     )
     parser.add_argument(
         'json_entry',
-        help='String containing a simple JSON formatted entry to write or update in the file. Silently ignored for `read` and `delete`.',
+        help='A simple JSON formatted entry to write or update in the file. Silently ignored for read and delete operation.',
         nargs='?',
         default='',
     )
@@ -103,7 +103,3 @@ def parse_arguments():
         return
     # We want to return a dict-like argument representation, which is why vars(...) is necessary (see argparse documentation)
     return vars(parser.parse_args())
-
-
-if __name__ == "__main__":
-    main()
