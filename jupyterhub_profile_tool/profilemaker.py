@@ -37,7 +37,7 @@ class ProfileMakerHandler(BaseProfileHandler):
     # This is the same code as in ServiceProfilesSpawner.
     def _fmt_description(self, spawner, options):
         option_elements = [ f"{k[4:] if k.startswith('req_') else k}: {v}" for k, v in options.items() if v ]
-        return f"{spawner} profile settings {', '.join(option_elements)}"
+        return f"{spawner} profile settings are {', '.join(option_elements)}"
 
     def _prepare_profile(self, profile):
         try:
