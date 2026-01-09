@@ -254,8 +254,7 @@ class ProfileManager(HasTraits):
         elif not user and action not in system_actions:
             raise ValueError(f"Allowed actions for system directory are {' '.join(system_actions)}.")
         cmd = [
-            sys.executable,
-            "-m", "jupyterhub_profile_tool.userprofileworker",
+            "userprofileworker",
             "--action", action,
             ]
         if user:
