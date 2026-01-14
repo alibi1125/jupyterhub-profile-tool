@@ -133,7 +133,7 @@
                      id="options.req_runtime"
                      name="options.req_runtime"
                      type="text"
-                     pattern="^([0-9]-)?[0-9]{2}:[0-9]{2}:[0-9]{2}$"
+                     pattern="^([01]-)?([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$"
                      value="01:00:00"
                      title="Profile's maximum runtime. Accepted formats: hh:mm:ss or d-hh:mm:ss">
             </div>
@@ -304,7 +304,9 @@
       }
 
       function safeGetProfile(url, idString) {
-        fetch(url)
+        fetch(url, {
+          credentials: 'include'
+        })
           .then(res => res.json())
           .then(data => {
             const maxDescLen = 40;
