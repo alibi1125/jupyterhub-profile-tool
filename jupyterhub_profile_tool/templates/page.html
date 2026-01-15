@@ -304,7 +304,16 @@
       }
 
       function safeGetProfile(url, idString) {
+        const token = getXsrfToken();
+        const headers = new Headers({});
+
+        // Only append XSRF token when it actually exists
+        if (token) {
+          headers.append("X-XSRFToken", token);
+        }
+
         fetch(url, {
+          headers,
           credentials: 'include'
         })
           .then(res => res.json())
