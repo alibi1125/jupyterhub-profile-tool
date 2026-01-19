@@ -11,7 +11,8 @@ from tornado.log import app_log, access_log, gen_log
 from urllib.parse import urljoin
 from schema import Schema, And, Or, Use, Regex, Optional, SchemaError
 
-from traitlets import HasTraits, Int, Unicode, Tuple
+from traitlets.config import Application, Configurable
+from traitlets import Int, Unicode, Tuple, Bool
 
 from jupyterhub.services.auth import HubOAuthenticated, HubOAuthCallbackHandler
 
@@ -26,10 +27,16 @@ class DataError(Exception):
 class BaseProfileHandler(HubOAuthenticated, web.RequestHandler):
     """Base handler class for this program. Does the mixin of hub authentication, creates a ProfileManager instance in its prepare method."""
 
-    @web.authenticated
-    def prepare(self):
-        self.manager_instance = ProfileManager(self.current_user["name"])
+    def initialize(self, prof_mgr):
+        self.manager_instance = prof_mgr
 
+    @web.authenticated
+    def _get_username(self):
+        self.user = self.current_user["name"]
+
+    def prepare(self):
+        app_log.debug(f"Request headers: {dict(self.request.headers)}")
+        self._get_username()
 
 class ProfileMakerHandler(BaseProfileHandler):
     """Manage Profiles for JupyterHub wrapspawner"""
@@ -52,11 +59,12 @@ class ProfileMakerHandler(BaseProfileHandler):
         # [3]: Additional HTML options to add to the <option> element, generated here. Currently only used to select the first profile by default.
         return [ profile["description"], profile["profile_id"], self._fmt_description(spawner, profile["options"]), "" ]
 
-    def initialize(self, prefix):
+    def initialize(self, prefix, prof_mgr):
         self.prefix = prefix
+        super().initialize(prof_mgr)
 
     def get(self):
-        profiles = self.manager_instance.get_all_profiles()
+        profiles = self.manager_instance.get_all_profiles(self.user)
         profiles_for_render = [ self._prepare_profile(profile) for profile in profiles ]
         if len(profiles_for_render) == 0:
             profiles_for_render = [ ["No profiles found", "invalid", "No profiles. If you think this is an error, please contact administration.", ""] ]
@@ -81,7 +89,7 @@ class ProfileGetAllHandler(BaseProfileHandler):
 
     def get(self):
         try:
-            profiles = self.manager_instance.get_all_profiles()
+            profiles = self.manager_instance.get_all_profiles(self.user)
             self.write({"profiles": profiles})
         except DataError as e:
             self.set_status(404)
@@ -93,7 +101,7 @@ class ProfileGetHandler(BaseProfileHandler):
 
     def get(self, profile_id):
         try:
-            profile = self.manager_instance.get_singular_profile(profile_id)
+            profile = self.manager_instance.get_singular_profile(self.user, profile_id)
             self.write(profile)
         except DataError as e:
             self.set_status(404)
@@ -104,10 +112,10 @@ class ProfileCreateHandler(BaseProfileHandler):
     """Creates an entirely new profile for the current user"""
 
     def post(self):
-        app_log.debug(f"Creating profile for user {self.current_user["name"]}.")
+        app_log.debug(f"Creating profile for user {self.user}.")
         data = self.request.body.decode("utf-8")
         try:
-            self.manager_instance.create_profile(data)
+            self.manager_instance.create_profile(self.user, data)
             self.write({"status": "OK"})
         except (DataError) as e:
             self.set_status(400)
@@ -118,10 +126,10 @@ class ProfileUpdateHandler(BaseProfileHandler):
     """Updates a given profile for the current user"""
 
     def post(self, profile_id):
-        app_log.debug(f"Updating profile {profile_id} for user {self.current_user["name"]}.")
+        app_log.debug(f"Updating profile {profile_id} for user {self.user}.")
         data = self.request.body.decode('utf-8')
         try:
-            self.manager_instance.update_profile(profile_id, data)
+            self.manager_instance.update_profile(self.user, profile_id, data)
             self.write({"status": "OK"})
         except DataError as e:
             self.set_status(400)
@@ -132,16 +140,16 @@ class ProfileDeleteHandler(BaseProfileHandler):
     """Removes a profile for the current user"""
 
     def post(self, profile_id):
-        app_log.debug(f"Deleting profile {profile_id} for user {self.current_user["name"]}.")
+        app_log.debug(f"Deleting profile {profile_id} for user {self.user}.")
         try:
-            self.manager_instance.delete_profile(profile_id)
+            self.manager_instance.delete_profile(self.user, profile_id)
             self.write({"status": "OK"})
         except DataError as e:
             self.set_status(400)
             self.write({"status": "error", "message": str(e)})
 
 
-class ProfileManager(HasTraits):
+class ProfileManager():
     """Performs the profile management in the background, keeping the Handlers simple
     Note on Interfaces: ProfileManager always returns payloads as Python objects including a string ID,
     but accepts both int and string IDs as well as Python object and string payloads.
@@ -150,31 +158,10 @@ class ProfileManager(HasTraits):
     class FileOpException(Exception):
         pass
 
-    system_profile_path = Unicode(
-        "/etc/jupyterhub/common_profiles.json",
-        config=True
-    )
-
-    home_base_dir = Unicode(
-        "/home/",
-        config=True
-    )
-
-    allowed_partitions = Tuple(
-        ("slowlane", "fastlane"),
-        config=True
-    )
-
-    max_cpu_cores = Int(
-        256,
-        config=True
-    )
-
-    def __init__(self, username):
-        app_log.debug(f"Instantiating profile manager for user {username}")
+    def __init__(self, app):
+        app_log.debug(f"Instantiating profile manager")
+        self.app = app
         self.__generate_schema()
-        self.username = username
-        self.user_profile_path = os.path.join(self.home_base_dir, username, ".jupyterhub", "user_profiles.json")
 
     def __profile_id_to_index(self, profile_id):
         if profile_id.startswith("userprof_"):
@@ -219,9 +206,9 @@ class ProfileManager(HasTraits):
                 Optional("profile_id"): str,
                 Optional("spawner"): str,
                 "options": {
-                    "req_partition": Or(*self.allowed_partitions, error="Unknown partition"),
+                    "req_partition": Or(*self.app.allowed_partitions, error="Unknown partition"),
                     "req_runtime": Regex(r"^([0-9]-)?[0-9]{2}:[0-9]{2}:[0-9]{2}$", error="Malformed runtime specification"),
-                    "req_nprocs": And(Use(str), lambda s: s.isdigit(), lambda s: (1 <= int(s) <= self.max_cpu_cores), error=f"Invalid nprocs spec, must be between 1 and {self.max_cpu_cores}"),
+                    "req_nprocs": And(Use(str), lambda s: s.isdigit(), lambda s: (1 <= int(s) <= self.app.max_cpu_cores), error=f"Invalid nprocs spec, must be between 1 and {self.app.max_cpu_cores}"),
                     "req_memory": And(Regex(r"^[1-9][0-9]*\s*[kKmMgGtT]?[bB]?$", error="Malformed memory specification"), Use(lambda s: s.upper().replace(" ","").replace("B",""))),
                     Optional("req_gres"): Regex(r"^(gpu:((A40:)|(A100:))?[1-8])?$", error="Malformed GRES specification"),
                 },
@@ -245,28 +232,29 @@ class ProfileManager(HasTraits):
                 error_stash.append(e)
         return profiles_out, error_stash
 
-    def __file_op(self, action, user=True, entry_index=None, new_profile=None):
+    def __file_op(self, username, action, usertype=True, entry_index=None, new_profile=None):
         """Handles interactions with JSON profile files"""
+        user_profile_path = os.path.join(self.home_base_dir, username, ".jupyterhub", "user_profiles.json")
         user_actions = ("read", "write", "delete", "update")
         system_actions = ("read")
-        if user and action not in user_actions:
+        if usertype and action not in user_actions:
             raise ValueError(f"Allowed actions for user directory are {' '.join(user_actions)}.")
-        elif not user and action not in system_actions:
+        elif not usertype and action not in system_actions:
             raise ValueError(f"Allowed actions for system directory are {' '.join(system_actions)}.")
         cmd = [
             "userprofileworker",
             "--action", action,
             ]
-        if user:
-            cmd.extend(["--path", self.user_profile_path])
+        if usertype:
+            cmd.extend(["--path", user_profile_path])
         else:
-            cmd.extend(["--path", self.system_profile_path])
+            cmd.extend(["--path", self.app.system_profile_path])
         if entry_index is not None:
             cmd.extend(["--entry_index", str(entry_index)])
         if new_profile is not None:
             cmd.append(new_profile)
         app_log.debug(f"Full command: {' '.join(cmd)}")
-        subproc_result = subprocess.run(cmd, capture_output=True, text=True, user=self.username if user else None)
+        subproc_result = subprocess.run(cmd, capture_output=True, text=True, user=username if usertype else None)
         # When reporting problems in the subproc, we assume a two-stage approach.
         # If it returns an RC > 0, we assume something went seriously wrong and error out.
         # If it has an error output, but no non-normal RC, we forward the message as a warning, but continue.
@@ -283,23 +271,23 @@ class ProfileManager(HasTraits):
         app_log.error(msg)
         raise DataError(msg)
 
-    def _get_profiles(self, user=True):
-        str_profiles = self.__file_op("read", user=user)
+    def _get_profiles(self, username, usertype=True):
+        str_profiles = self.__file_op(username, "read", usertype=usertype)
         try:
             profiles = self.__ensure_objectified(str_profiles)
         except json.JSONDecodeError as e:
-            app_log.error(f"Loaded {'user' if user else 'system'} profiles could not be parsed as JSON. Returning empty list to not break anything.")
+            app_log.error(f"Loaded {'user' if usertype else 'system'} profiles could not be parsed as JSON. Returning empty list to not break anything.")
             profiles = []
         profiles, errors = self.__sanitize_list(profiles)
         if len(errors) > 0:
-            app_log.error(f"Loaded {'user' if user else 'system'} profiles look partially malformed. Schema reports the following: {"\n".join(errors)}. Returning well-formed profiles only.")
-        app_log.debug(f"{'User' if user else 'System'} profile data structure is {profiles}")
+            app_log.error(f"Loaded {'user' if usertype else 'system'} profiles look partially malformed. Schema reports the following: {"\n".join(errors)}. Returning well-formed profiles only.")
+        app_log.debug(f"{'User' if usertype else 'System'} profile data structure is {profiles}")
         for index, profile in enumerate(profiles):
             # No more need for type checking. __sanitize takes care of that.
-            profile["profile_id"] = self.__index_to_profile_id(index, user)
+            profile["profile_id"] = self.__index_to_profile_id(index, usertype)
         return profiles
 
-    def create_profile(self, profile_in):
+    def create_profile(self, username, profile_in):
         try:
             profile_obj = self.__ensure_objectified(profile_in)
         except json.JSONDecodeError:
@@ -309,9 +297,9 @@ class ProfileManager(HasTraits):
         except SchemaError as e:
             self.__log_and_raise(f"Schema evaluation for new profile failed. Schema says `{e}`. Stopping to avoid damage.")
         profile_str = self.__ensure_stringified(profile_obj)
-        self.__file_op("write", new_profile=profile_str)
+        self.__file_op(username, "write", new_profile=profile_str)
 
-    def update_profile(self, profile_id, new_profile_in):
+    def update_profile(self, username, profile_id, new_profile_in):
         try:
             old_profile_index, user = self.__profile_id_to_index(profile_id)
         except ValueError as e:
@@ -328,13 +316,13 @@ class ProfileManager(HasTraits):
             self.__log_and_raise(f"Schema evaluation for updated profile failed. Schema says `{e}`. Stopping to avoid damage.")
         new_profile_str = self.__ensure_stringified(new_profile_obj)
         try:
-            self.__file_op("update", entry_index=old_profile_index, new_profile=new_profile_str)
+            self.__file_op(username, "update", entry_index=old_profile_index, new_profile=new_profile_str)
         except self.FileOpException as e:
             if e.rc == 78:
                 self.__log_and_raise(f"Profile index {old_profile_index} does not exist. Stopping without changes.")
             raise e
 
-    def delete_profile(self, profile_id):
+    def delete_profile(self, username, profile_id):
         try:
             old_profile_index, user = self.__profile_id_to_index(profile_id)
         except ValueError:
@@ -342,99 +330,163 @@ class ProfileManager(HasTraits):
         if not user:
             self.__log_and_raise("Tried to delete a system profile. This should not be attempted. Refusing.")
         try:
-            self.__file_op("delete", entry_index=old_profile_index)
+            self.__file_op(username, "delete", entry_index=old_profile_index)
         except self.FileOpException as e:
             if e.rc == 78:
                 self.__log_and_raise(f"Profile index {old_profile_index} does not exist. Stopping without changes.")
             raise e
 
-    def get_all_profiles(self):
-        user_profiles = self._get_profiles(user=True)
-        system_profiles = self._get_profiles(user=False)
+    def get_all_profiles(self, username):
+        user_profiles = self._get_profiles(username, usertype=True)
+        system_profiles = self._get_profiles(username, usertype=False)
         return user_profiles + system_profiles
 
-    def get_singular_profile(self, profile_id):
+    def get_singular_profile(self, username, profile_id):
         try:
-            index, user = self.__profile_id_to_index(profile_id)
+            index, usertype = self.__profile_id_to_index(profile_id)
         except ValueError:
             self.__log_and_raise("Profile ID invalid.")
-        profiles = self._get_profiles(user)
+        profiles = self._get_profiles(username, usertype)
         try:
             return profiles[index]
         except IndexError:
             self.__log_and_raise(f"Index out of bounds. List length is {len(profiles)}, requested index is {index}.")
 
 
+class ProfileMaker(Application):
+
+    name = "profilemaker"
+
+    description = """A JupyterHub service and web app to enable users to customize their profiles for use with WrapSpawner."""
+
+    config_file = Unicode(
+        "profilemaker_config.py",
+        help = "The main configuration file for this application",
+        config = True
+    )
+
+    debug = Bool(
+        True,
+        help = "Run ProfileMaker in debug mode",
+        config = True
+    )
+
+    home_base_dir = Unicode(
+        "/home/",
+        config = True
+    )
+
+    cookie_secret_file = Unicode(
+        "/root/.jupyterhub/cookie-secret",
+        help = "Path to the file containing JupyterHub`s shared cookie secret. Must be identical to JupyterHub`s setting of the same name.",
+        config = True
+    )
+
+    port = Int(
+        8003,
+        help = "The local port that the profile maker tool should be running on.",
+        config = True
+    )
+
+    service_prefix = Unicode(
+        help = "The web address prefix that this service will be running under.",
+        config = True
+    )
+
+    system_profile_path = Unicode(
+        "/etc/jupyterhub/common_profiles.json",
+        help = "Path to the JSON file containing the commonly configured profiles",
+        config = True
+    )
+
+    allowed_partitions = Tuple(
+        ('fastlane', 'arboghast'),
+        help = "Tuple of selectable partitions in the Profile Manager",
+        config = True
+    )
+
+    max_cpu_cores = Int(
+        256,
+        help = "Amount of CPU cores to assign at maximum",
+        config = True
+    )
+
+    def create_webapp(self, **kwargs):
+        with open(self.cookie_secret_file) as f:
+            text_secret = f.read().strip()
+        cookie_secret = binascii.a2b_hex(text_secret)
+        profile_manager = ProfileManager(self)
+        app_log.addHandler(logging.handlers.SysLogHandler("/dev/log"))
+        if self.debug:
+            app_log.setLevel("DEBUG")
+            access_log.addHandler(logging.handlers.SysLogHandler("/dev/log"))
+            access_log.setLevel("DEBUG")
+            gen_log.addHandler(logging.handlers.SysLogHandler("/dev/log"))
+            gen_log.setLevel("DEBUG")
+        else:
+            app_log.setLevel("INFO")
+        app_log.debug(f"Using service prefix {self.service_prefix}")
+        app_log.info(f"Working directory: {os.getcwd()}")
+        webapp = web.Application(
+            [(self.service_prefix, ProfileMakerHandler, {"prefix": self.service_prefix, "prof_mgr": profile_manager}),
+             (urljoin(self.service_prefix, "profiles/data"), ProfileGetAllHandler, {"prof_mgr": profile_manager}),
+             (urljoin(self.service_prefix, "profiles/create"), ProfileCreateHandler, {"prof_mgr": profile_manager}),
+             (urljoin(self.service_prefix, "profiles/(userprof_[0-9]+)/data"), ProfileGetHandler, {"prof_mgr": profile_manager}),
+             (urljoin(self.service_prefix, "profiles/(sysprof_[0-9]+)/data"), ProfileGetHandler, {"prof_mgr": profile_manager}),
+             (urljoin(self.service_prefix, "profiles/(userprof_[0-9]+)/update"), ProfileUpdateHandler, {"prof_mgr": profile_manager}),
+             (urljoin(self.service_prefix, "profiles/(userprof_[0-9]+)/delete"), ProfileDeleteHandler, {"prof_mgr": profile_manager}),
+             (urljoin(self.service_prefix, "oauth_callback"), HubOAuthCallbackHandler, {"prof_mgr": profile_manager}),
+            ],
+            cookie_secret=cookie_secret,
+            template_path="templates",
+            login_url="/hub/login"
+        )
+        webapp.listen(self.port)
+        ioloop.IOLoop.current().start()
+
+    def start(self):
+        self.load_config_file(self.config_file)
+        self.create_webapp()
+
+    def write_config_file(self):
+        """Write our default config to a .py config file"""
+        config_file_dir = os.path.dirname(os.path.abspath(self.config_file))
+        if not os.path.isdir(config_file_dir):
+            self.exit(
+                f"{config_file_dir} does not exist. The destination directory must exist before generating config file."
+            )
+        if os.path.exists(self.config_file):
+            answer = ''
+
+            def ask():
+                prompt = f"Overwrite {self.config_file} with default config? [y/N]"
+                try:
+                    return input(prompt).lower() or 'n'
+                except KeyboardInterrupt:
+                    print('')  # empty line
+                    return 'n'
+
+            answer = ask()
+            while not answer.startswith(('y', 'n')):
+                print("Please answer 'yes' or 'no'")
+                answer = ask()
+            if answer.startswith('n'):
+                return
+
+        config_text = self.generate_config_file()
+        if isinstance(config_text, bytes):
+            config_text = config_text.decode('utf8')
+        print(f"Writing default config to: {self.config_file}")
+        with open(self.config_file, mode='w') as f:
+            f.write(config_text)
+
+
 def main():
-    args = parse_arguments()
     abspath = os.path.abspath(__file__)
     dname = os.path.dirname(abspath)
     os.chdir(dname)
-    app_log.addHandler(logging.handlers.SysLogHandler("/dev/log"))
-    if args["debug"]:
-        app_log.setLevel("DEBUG")
-        access_log.addHandler(logging.handlers.SysLogHandler("/dev/log"))
-        access_log.setLevel("DEBUG")
-        gen_log.addHandler(logging.handlers.SysLogHandler("/dev/log"))
-        gen_log.setLevel("DEBUG")
-    else:
-        app_log.setLevel("INFO")
-    app_log.info(f"Working directory: {os.getcwd()}")
-    application = create_application(cmdline_args=args)
-    application.listen(args["port"])
-    ioloop.IOLoop.current().start()
+    profilemaker = ProfileMaker()
+    profilemaker.write_config_file()
 
-
-def parse_arguments():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--cookie-secret-file",
-        help="Location of JupyterHub's cookie secret",
-        type=str,
-        required=True,
-    )
-    parser.add_argument(
-        "--home-base-dir",
-        help="Absolute path to the home directory location. Users` homes are derived as home-base-dir/username.",
-        type=str,
-        required=True,
-    )
-    parser.add_argument(
-        "--service-prefix",
-        help="Application API prefix",
-        default=os.environ.get("JUPYTERHUB_SERVICE_PREFIX", "/"),
-        type=str,
-    )
-    parser.add_argument(
-        "--port",
-        help="Port for API to listen on",
-        default=8003,
-        type=int,
-    )
-    parser.add_argument(
-        "--debug",
-        help="Activate the debug logging level",
-        action="store_true",
-    )
-    return vars(parser.parse_args())
-
-
-def create_application(cmdline_args, **kwargs):
-    with open(cmdline_args["cookie_secret_file"]) as f:
-        text_secret = f.read().strip()
-    cookie_secret = binascii.a2b_hex(text_secret)
-    ProfileManager.home_base_dir = cmdline_args["home_base_dir"]
-    prefix = cmdline_args["service_prefix"]
-    app_log.debug(f"Using service prefix {prefix}")
-    return web.Application([(prefix, ProfileMakerHandler, {"prefix": prefix}),
-                            (urljoin(prefix, "profiles/data"), ProfileGetAllHandler),
-                            (urljoin(prefix, "profiles/create"), ProfileCreateHandler),
-                            (urljoin(prefix, "profiles/(userprof_[0-9]+)/data"), ProfileGetHandler),
-                            (urljoin(prefix, "profiles/(sysprof_[0-9]+)/data"), ProfileGetHandler),
-                            (urljoin(prefix, "profiles/(userprof_[0-9]+)/update"), ProfileUpdateHandler),
-                            (urljoin(prefix, "profiles/(userprof_[0-9]+)/delete"), ProfileDeleteHandler),
-                            (urljoin(prefix, "oauth_callback"), HubOAuthCallbackHandler),
-                           ],
-                           cookie_secret=cookie_secret,
-                           template_path="templates",
-                           login_url="/hub/login")
+if __name__ == "__main__":
+    main()
