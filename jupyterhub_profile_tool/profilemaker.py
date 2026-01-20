@@ -11,8 +11,8 @@ from tornado.log import app_log, access_log, gen_log
 from urllib.parse import urljoin
 from schema import Schema, And, Or, Use, Regex, Optional, SchemaError
 
-from traitlets.config import Application, Configurable
-from traitlets import Int, Unicode, Tuple, Bool
+from traitlets.config import Application
+from traitlets import Int, Unicode, Tuple, Bool, Bytes
 
 from jupyterhub.services.auth import HubOAuthenticated, HubOAuthCallbackHandler
 
@@ -59,8 +59,8 @@ class ProfileMakerHandler(BaseProfileHandler):
         # [3]: Additional HTML options to add to the <option> element, generated here. Currently only used to select the first profile by default.
         return [ profile["description"], profile["profile_id"], self._fmt_description(spawner, profile["options"]), "" ]
 
-    def initialize(self, prefix, prof_mgr):
-        self.prefix = prefix
+    def initialize(self, app, prof_mgr):
+        self.app = app
         super().initialize(prof_mgr)
 
     def get(self):
@@ -74,7 +74,10 @@ class ProfileMakerHandler(BaseProfileHandler):
                     base_url="/hub/",
                     user=self.current_user["name"],
                     profiles=profiles_for_render,
-                    prefix=self.prefix)
+                    prefix=self.app.service_prefix,
+                    allowed_partitions=self.app.allowed_partitions,
+                    max_cpu_cores=self.app.max_cpu_cores,
+                    allowed_time_regex=self.app.allowed_time_regex)
 
 # POST action on this endpoint was used for testing only; permanently disable it for productive use.
 #     def post(self):
@@ -207,7 +210,7 @@ class ProfileManager():
                 Optional("spawner"): str,
                 "options": {
                     "req_partition": Or(*self.app.allowed_partitions, error="Unknown partition"),
-                    "req_runtime": Regex(r"^([0-9]-)?[0-9]{2}:[0-9]{2}:[0-9]{2}$", error="Malformed runtime specification"),
+                    "req_runtime": Regex(self.app.allowed_time_regex, error="Malformed runtime specification"),
                     "req_nprocs": And(Use(str), lambda s: s.isdigit(), lambda s: (1 <= int(s) <= self.app.max_cpu_cores), error=f"Invalid nprocs spec, must be between 1 and {self.app.max_cpu_cores}"),
                     "req_memory": And(Regex(r"^[1-9][0-9]*\s*[kKmMgGtT]?[bB]?$", error="Malformed memory specification"), Use(lambda s: s.upper().replace(" ","").replace("B",""))),
                     Optional("req_gres"): Regex(r"^(gpu:((A40:)|(A100:))?[1-8])?$", error="Malformed GRES specification"),
@@ -373,6 +376,7 @@ class ProfileMaker(Application):
 
     home_base_dir = Unicode(
         "/home/",
+        help = "The base directory for all the users` homes. Used to find individual profile files. Must be identical to SlurmSpawner`s setting of the same name.",
         config = True
     )
 
@@ -384,12 +388,13 @@ class ProfileMaker(Application):
 
     port = Int(
         8003,
-        help = "The local port that the profile maker tool should be running on.",
+        help = "The local port that the profile maker tool should be running on",
         config = True
     )
 
     service_prefix = Unicode(
-        help = "The web address prefix that this service will be running under.",
+        "/services/jupyterhub_profile_tool",
+        help = "The web address prefix that this service will be running under",
         config = True
     )
 
@@ -411,6 +416,12 @@ class ProfileMaker(Application):
         config = True
     )
 
+    allowed_time_regex = Bytes(
+        "^([01]-)?([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$",
+        help = "The regex a wall time specifier will be checked against",
+        config = True
+    )
+
     def create_webapp(self, **kwargs):
         with open(self.cookie_secret_file) as f:
             text_secret = f.read().strip()
@@ -428,7 +439,7 @@ class ProfileMaker(Application):
         app_log.debug(f"Using service prefix {self.service_prefix}")
         app_log.info(f"Working directory: {os.getcwd()}")
         webapp = web.Application(
-            [(self.service_prefix, ProfileMakerHandler, {"prefix": self.service_prefix, "prof_mgr": profile_manager}),
+            [(self.service_prefix, ProfileMakerHandler, {"app": self, "prof_mgr": profile_manager}),
              (urljoin(self.service_prefix, "profiles/data"), ProfileGetAllHandler, {"prof_mgr": profile_manager}),
              (urljoin(self.service_prefix, "profiles/create"), ProfileCreateHandler, {"prof_mgr": profile_manager}),
              (urljoin(self.service_prefix, "profiles/(userprof_[0-9]+)/data"), ProfileGetHandler, {"prof_mgr": profile_manager}),
