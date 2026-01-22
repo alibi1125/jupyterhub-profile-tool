@@ -237,7 +237,7 @@ class ProfileManager():
 
     def __file_op(self, username, action, usertype=True, entry_index=None, new_profile=None):
         """Handles interactions with JSON profile files"""
-        user_profile_path = os.path.join(self.home_base_dir, username, ".jupyterhub", "user_profiles.json")
+        user_profile_path = os.path.join(self.app.home_base_dir, username, ".jupyterhub", "user_profiles.json")
         user_actions = ("read", "write", "delete", "update")
         system_actions = ("read")
         if usertype and action not in user_actions:
@@ -283,7 +283,7 @@ class ProfileManager():
             profiles = []
         profiles, errors = self.__sanitize_list(profiles)
         if len(errors) > 0:
-            app_log.error(f"Loaded {'user' if usertype else 'system'} profiles look partially malformed. Schema reports the following: {"\n".join(errors)}. Returning well-formed profiles only.")
+            app_log.error(f"Loaded {'user' if usertype else 'system'} profiles look partially malformed. Schema reports the following: {'\n'.join([str(e) for e in errors])}. Returning well-formed profiles only.")
         app_log.debug(f"{'User' if usertype else 'System'} profile data structure is {profiles}")
         for index, profile in enumerate(profiles):
             # No more need for type checking. __sanitize takes care of that.
@@ -362,6 +362,12 @@ class ProfileMaker(Application):
 
     description = """A JupyterHub service and web app to enable users to customize their profiles for use with WrapSpawner."""
 
+    create_config_file = Bool(
+        False,
+        help = "Creates the service`s default config file and exits. WARNING: If set to True, overwrites `config_file` without notice.",
+        config = True
+    )
+
     config_file = Unicode(
         "profilemaker_config.py",
         help = "The main configuration file for this application",
@@ -381,7 +387,7 @@ class ProfileMaker(Application):
     )
 
     cookie_secret_file = Unicode(
-        "/root/.jupyterhub/cookie-secret",
+        "/root/.jupyterhub_secrets/jupyterhub_cookie_secret",
         help = "Path to the file containing JupyterHub`s shared cookie secret. Must be identical to JupyterHub`s setting of the same name.",
         config = True
     )
@@ -393,7 +399,7 @@ class ProfileMaker(Application):
     )
 
     service_prefix = Unicode(
-        "/services/jupyterhub_profile_tool",
+        "/services/jupyterhub_profile_tool/",
         help = "The web address prefix that this service will be running under",
         config = True
     )
@@ -417,7 +423,7 @@ class ProfileMaker(Application):
     )
 
     allowed_time_regex = Bytes(
-        "^([01]-)?([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$",
+        b"^([01]-)?([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$",
         help = "The regex a wall time specifier will be checked against",
         config = True
     )
@@ -455,10 +461,6 @@ class ProfileMaker(Application):
         webapp.listen(self.port)
         ioloop.IOLoop.current().start()
 
-    def start(self):
-        self.load_config_file(self.config_file)
-        self.create_webapp()
-
     def write_config_file(self):
         """Write our default config to a .py config file"""
         config_file_dir = os.path.dirname(os.path.abspath(self.config_file))
@@ -466,38 +468,26 @@ class ProfileMaker(Application):
             self.exit(
                 f"{config_file_dir} does not exist. The destination directory must exist before generating config file."
             )
-        if os.path.exists(self.config_file):
-            answer = ''
-
-            def ask():
-                prompt = f"Overwrite {self.config_file} with default config? [y/N]"
-                try:
-                    return input(prompt).lower() or 'n'
-                except KeyboardInterrupt:
-                    print('')  # empty line
-                    return 'n'
-
-            answer = ask()
-            while not answer.startswith(('y', 'n')):
-                print("Please answer 'yes' or 'no'")
-                answer = ask()
-            if answer.startswith('n'):
-                return
-
         config_text = self.generate_config_file()
         if isinstance(config_text, bytes):
             config_text = config_text.decode('utf8')
-        print(f"Writing default config to: {self.config_file}")
+        print(f"Writing default config to {self.config_file}")
         with open(self.config_file, mode='w') as f:
             f.write(config_text)
+
+    def start(self):
+        if self.create_config_file:
+            self.write_config_file()
+        else:
+            self.load_config_file(self.config_file)
+            self.create_webapp()
 
 
 def main():
     abspath = os.path.abspath(__file__)
     dname = os.path.dirname(abspath)
     os.chdir(dname)
-    profilemaker = ProfileMaker()
-    profilemaker.write_config_file()
+    ProfileMaker.launch_instance()
 
 if __name__ == "__main__":
     main()
