@@ -7,7 +7,7 @@ authors = [
     {name = "Alexander Birk", email = "alexander.birk@ki.uni-stuttgart.de"},
 ]
 name = "jupyterhub_profile_tool"
-version = "0.2.0.dev2"
+version = "0.2.1.dev1"
 description = "A Jupyterhub service that allows users to create, modify and delete Jupyterhub spawner profiles"
 readme = "README.md"
 license = "BSD-2-Clause"
@@ -16,6 +16,7 @@ dependencies = [
     "jupyterhub>=1.5.1",
     "tornado",
     "schema",
+    "systemd-python",
 ]
 requires-python = ">=3.9"
 keywords = [

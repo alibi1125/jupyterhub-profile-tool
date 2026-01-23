@@ -463,7 +463,7 @@ class ProfileMaker(Application):
              (urljoin(self.service_prefix, "profiles/(sysprof_[0-9]+)/data"), ProfileGetHandler, {"prof_mgr": profile_manager}),
              (urljoin(self.service_prefix, "profiles/(userprof_[0-9]+)/update"), ProfileUpdateHandler, {"prof_mgr": profile_manager}),
              (urljoin(self.service_prefix, "profiles/(userprof_[0-9]+)/delete"), ProfileDeleteHandler, {"prof_mgr": profile_manager}),
-             (urljoin(self.service_prefix, "oauth_callback"), HubOAuthCallbackHandler, {"prof_mgr": profile_manager}),
+             (urljoin(self.service_prefix, "oauth_callback"), HubOAuthCallbackHandler),
             ],
             cookie_secret=cookie_secret,
             template_path="templates",
