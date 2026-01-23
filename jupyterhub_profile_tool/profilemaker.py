@@ -1,8 +1,6 @@
-import argparse
 import json
 import subprocess
 import os
-import sys
 import binascii
 import logging
 
@@ -11,10 +9,30 @@ from tornado.log import app_log, access_log, gen_log
 from urllib.parse import urljoin
 from schema import Schema, And, Or, Use, Regex, Optional, SchemaError
 
-from traitlets.config import Application
+from traitlets.config import Application, Configurable
 from traitlets import Int, Unicode, Tuple, Bool, Bytes
 
 from jupyterhub.services.auth import HubOAuthenticated, HubOAuthCallbackHandler
+
+
+aliases = {
+    "port": "ProfileMaker.port",
+    "service-prefix": "ProfileMaker.service_prefix",
+    "cookie-secret-file": "ProfileMaker.cookie_secret_file",
+    "home-base-dir": "ProfileManager.home_base_dir",
+    "system-profile-path": "ProfileManager.system_profile_path",
+}
+
+flags = {
+    "debug": (
+        {"Application": {"log_level": logging.DEBUG}},
+        "Set log level to logging.DEBUG (maximize logging output)",
+    ),
+    "create-config": (
+        {"ProfileMaker": {"create_config_file": True}},
+        "Create default config file overwriting an existing config, and exit",
+    ),
+}
 
 
 class DataError(Exception):
@@ -152,19 +170,30 @@ class ProfileDeleteHandler(BaseProfileHandler):
             self.write({"status": "error", "message": str(e)})
 
 
-class ProfileManager():
+class ProfileManager(Configurable):
     """Performs the profile management in the background, keeping the Handlers simple
     Note on Interfaces: ProfileManager always returns payloads as Python objects including a string ID,
     but accepts both int and string IDs as well as Python object and string payloads.
     """
+
+    home_base_dir = Unicode(
+        "/home/",
+        help = "The base directory for all the users` homes. Used to find individual profile files. Must be identical to SlurmSpawner`s setting of the same name.",
+        config = True
+    )
+
+    system_profile_path = Unicode(
+        "/etc/jupyterhub/common_profiles.json",
+        help = "Path to the JSON file containing the commonly configured profiles",
+        config = True
+    )
 
     class FileOpException(Exception):
         pass
 
     def __init__(self, app):
         app_log.debug(f"Instantiating profile manager")
-        self.app = app
-        self.__generate_schema()
+        self.__generate_schema(app)
 
     def __profile_id_to_index(self, profile_id):
         if profile_id.startswith("userprof_"):
@@ -201,7 +230,7 @@ class ProfileManager():
             raise ValueError(f"Unexpected profile representation: {type(profile_in)}. Cannot continue.")
         return profile_out
 
-    def __generate_schema(self):
+    def __generate_schema(self, app):
         """Creates a new profile_schema for the instance. Note: The schema must be created at runtime because it uses traitlets."""
         self.profile_schema = Schema(
             {
@@ -209,9 +238,9 @@ class ProfileManager():
                 Optional("profile_id"): str,
                 Optional("spawner"): str,
                 "options": {
-                    "req_partition": Or(*self.app.allowed_partitions, error="Unknown partition"),
-                    "req_runtime": Regex(self.app.allowed_time_regex, error="Malformed runtime specification"),
-                    "req_nprocs": And(Use(str), lambda s: s.isdigit(), lambda s: (1 <= int(s) <= self.app.max_cpu_cores), error=f"Invalid nprocs spec, must be between 1 and {self.app.max_cpu_cores}"),
+                    "req_partition": Or(*app.allowed_partitions, error="Unknown partition"),
+                    "req_runtime": Regex(app.allowed_time_regex, error="Malformed runtime specification"),
+                    "req_nprocs": And(Use(str), lambda s: s.isdigit(), lambda s: (1 <= int(s) <= app.max_cpu_cores), error=f"Invalid nprocs spec, must be between 1 and {app.max_cpu_cores}"),
                     "req_memory": And(Regex(r"^[1-9][0-9]*\s*[kKmMgGtT]?[bB]?$", error="Malformed memory specification"), Use(lambda s: s.upper().replace(" ","").replace("B",""))),
                     Optional("req_gres"): Regex(r"^(gpu:((A40:)|(A100:))?[1-8])?$", error="Malformed GRES specification"),
                 },
@@ -237,7 +266,7 @@ class ProfileManager():
 
     def __file_op(self, username, action, usertype=True, entry_index=None, new_profile=None):
         """Handles interactions with JSON profile files"""
-        user_profile_path = os.path.join(self.app.home_base_dir, username, ".jupyterhub", "user_profiles.json")
+        user_profile_path = os.path.join(self.home_base_dir, username, ".jupyterhub", "user_profiles.json")
         user_actions = ("read", "write", "delete", "update")
         system_actions = ("read")
         if usertype and action not in user_actions:
@@ -251,7 +280,7 @@ class ProfileManager():
         if usertype:
             cmd.extend(["--path", user_profile_path])
         else:
-            cmd.extend(["--path", self.app.system_profile_path])
+            cmd.extend(["--path", self.system_profile_path])
         if entry_index is not None:
             cmd.extend(["--entry_index", str(entry_index)])
         if new_profile is not None:
@@ -358,9 +387,12 @@ class ProfileManager():
 
 class ProfileMaker(Application):
 
-    name = "profilemaker"
+    name = "ProfileMaker"
 
     description = """A JupyterHub service and web app to enable users to customize their profiles for use with WrapSpawner."""
+
+    aliases = aliases
+    flags = flags
 
     create_config_file = Bool(
         False,
@@ -377,12 +409,6 @@ class ProfileMaker(Application):
     debug = Bool(
         True,
         help = "Run ProfileMaker in debug mode",
-        config = True
-    )
-
-    home_base_dir = Unicode(
-        "/home/",
-        help = "The base directory for all the users` homes. Used to find individual profile files. Must be identical to SlurmSpawner`s setting of the same name.",
         config = True
     )
 
@@ -404,12 +430,6 @@ class ProfileMaker(Application):
         config = True
     )
 
-    system_profile_path = Unicode(
-        "/etc/jupyterhub/common_profiles.json",
-        help = "Path to the JSON file containing the commonly configured profiles",
-        config = True
-    )
-
     allowed_partitions = Tuple(
         ('fastlane', 'arboghast'),
         help = "Tuple of selectable partitions in the Profile Manager",
@@ -428,22 +448,13 @@ class ProfileMaker(Application):
         config = True
     )
 
-    def create_webapp(self, **kwargs):
+    def create_webapp(self):
         with open(self.cookie_secret_file) as f:
             text_secret = f.read().strip()
         cookie_secret = binascii.a2b_hex(text_secret)
         profile_manager = ProfileManager(self)
-        app_log.addHandler(logging.handlers.SysLogHandler("/dev/log"))
-        if self.debug:
-            app_log.setLevel("DEBUG")
-            access_log.addHandler(logging.handlers.SysLogHandler("/dev/log"))
-            access_log.setLevel("DEBUG")
-            gen_log.addHandler(logging.handlers.SysLogHandler("/dev/log"))
-            gen_log.setLevel("DEBUG")
-        else:
-            app_log.setLevel("INFO")
-        app_log.debug(f"Using service prefix {self.service_prefix}")
-        app_log.info(f"Working directory: {os.getcwd()}")
+        self.log.debug(f"Using service prefix {self.service_prefix}")
+        self.log.info(f"Working directory: {os.getcwd()}")
         webapp = web.Application(
             [(self.service_prefix, ProfileMakerHandler, {"app": self, "prof_mgr": profile_manager}),
              (urljoin(self.service_prefix, "profiles/data"), ProfileGetAllHandler, {"prof_mgr": profile_manager}),
@@ -456,8 +467,10 @@ class ProfileMaker(Application):
             ],
             cookie_secret=cookie_secret,
             template_path="templates",
-            login_url="/hub/login"
+            login_url="/hub/login",
+            log_function=None
         )
+        webapp.log = self.log
         webapp.listen(self.port)
         ioloop.IOLoop.current().start()
 
@@ -481,13 +494,7 @@ class ProfileMaker(Application):
         else:
             self.load_config_file(self.config_file)
             self.create_webapp()
-
-
-def main():
-    abspath = os.path.abspath(__file__)
-    dname = os.path.dirname(abspath)
-    os.chdir(dname)
-    ProfileMaker.launch_instance()
-
-if __name__ == "__main__":
-    main()
+    
+    def initialize(self):
+        self.log = logging.getLogger("tornado.application")
+        self.log.debug("Traitlets initialized")
