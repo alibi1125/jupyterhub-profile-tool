@@ -16,6 +16,7 @@ from jupyterhub.services.auth import HubOAuthenticated, HubOAuthCallbackHandler
 
 
 aliases = {
+    "config-file": "ProfileMaker.config_file",
     "port": "ProfileMaker.port",
     "service-prefix": "ProfileMaker.service_prefix",
     "cookie-secret-file": "ProfileMaker.cookie_secret_file",
@@ -30,7 +31,7 @@ flags = {
     ),
     "create-config": (
         {"ProfileMaker": {"create_config_file": True}},
-        "Create default config file overwriting an existing config, and exit",
+        "Create default config file overwriting the existing config, if any, and exit",
     ),
 }
 
@@ -55,6 +56,7 @@ class BaseProfileHandler(HubOAuthenticated, web.RequestHandler):
     def prepare(self):
         app_log.debug(f"Request headers: {dict(self.request.headers)}")
         self._get_username()
+
 
 class ProfileMakerHandler(BaseProfileHandler):
     """Manage Profiles for JupyterHub wrapspawner"""
@@ -96,13 +98,6 @@ class ProfileMakerHandler(BaseProfileHandler):
                     allowed_partitions=self.app.allowed_partitions,
                     max_cpu_cores=self.app.max_cpu_cores,
                     allowed_time_regex=self.app.allowed_time_regex)
-
-# POST action on this endpoint was used for testing only; permanently disable it for productive use.
-#     def post(self):
-#         spawner_options = {"req_nprocs": "1", "req_memory": "100M", "req_partition": "fastlane", "req_runtime": "00:10:00"}
-#         profile = {"description": "Test profile", "options": spawner_options}
-#         self.manager_instance.create_profile(profile)
-#         self.write({"status": "OK"})
 
 
 class ProfileGetAllHandler(BaseProfileHandler):
@@ -189,10 +184,18 @@ class ProfileManager(Configurable):
     )
 
     class FileOpException(Exception):
-        pass
+        """Special Exception class to signal errors in user child processes"""
 
-    def __init__(self, app):
+        def __init__(self, rc, em):
+            self.rc = rc
+            self.em = em
+
+        def __str__(self):
+            return f"FileOpException: {str(self.em)} (return code {str(self.rc)})"
+
+    def __init__(self, app, config):
         app_log.debug(f"Instantiating profile manager")
+        super().__init__(config=config)
         self.__generate_schema(app)
 
     def __profile_id_to_index(self, profile_id):
@@ -238,7 +241,7 @@ class ProfileManager(Configurable):
                 Optional("profile_id"): str,
                 Optional("spawner"): str,
                 "options": {
-                    "req_partition": Or(*app.allowed_partitions, error="Unknown partition"),
+                    "req_partition": Or(*app.allowed_partitions, error="Unknown or disallowed partition"),
                     "req_runtime": Regex(app.allowed_time_regex, error="Malformed runtime specification"),
                     "req_nprocs": And(Use(str), lambda s: s.isdigit(), lambda s: (1 <= int(s) <= app.max_cpu_cores), error=f"Invalid nprocs spec, must be between 1 and {app.max_cpu_cores}"),
                     "req_memory": And(Regex(r"^[1-9][0-9]*\s*[kKmMgGtT]?[bB]?$", error="Malformed memory specification"), Use(lambda s: s.upper().replace(" ","").replace("B",""))),
@@ -292,7 +295,7 @@ class ProfileManager(Configurable):
         # If it has an error output, but no non-normal RC, we forward the message as a warning, but continue.
         if subproc_result.returncode > 0:
             app_log.error(f"Errors encountered in subprocess: {subproc_result.stderr}")
-            raise self.FileOpException(rc=subproc_result.returncode, error_message=subproc_result.stderr)
+            raise self.FileOpException(rc=subproc_result.returncode, em=subproc_result.stderr)
         elif subproc_result.stderr != "":
             app_log.warning(f"Problems encountered in subprocess: {subproc_result.stderr}")
         if action == "read":
@@ -393,6 +396,7 @@ class ProfileMaker(Application):
 
     aliases = aliases
     flags = flags
+    classes = [ProfileManager]
 
     create_config_file = Bool(
         False,
@@ -452,7 +456,7 @@ class ProfileMaker(Application):
         with open(self.cookie_secret_file) as f:
             text_secret = f.read().strip()
         cookie_secret = binascii.a2b_hex(text_secret)
-        profile_manager = ProfileManager(self)
+        profile_manager = ProfileManager(app=self, config=self.config)
         self.log.debug(f"Using service prefix {self.service_prefix}")
         self.log.info(f"Working directory: {os.getcwd()}")
         webapp = web.Application(
@@ -467,8 +471,7 @@ class ProfileMaker(Application):
             ],
             cookie_secret=cookie_secret,
             template_path="templates",
-            login_url="/hub/login",
-            log_function=None
+            login_url="/hub/login"
         )
         webapp.log = self.log
         webapp.listen(self.port)
@@ -494,7 +497,8 @@ class ProfileMaker(Application):
         else:
             self.load_config_file(self.config_file)
             self.create_webapp()
-    
-    def initialize(self):
+
+    def initialize(self, argv):
         self.log = logging.getLogger("tornado.application")
+        self.parse_command_line(argv)
         self.log.debug("Traitlets initialized")
