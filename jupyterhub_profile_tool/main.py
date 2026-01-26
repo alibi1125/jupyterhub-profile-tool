@@ -1,5 +1,6 @@
 import os
 import logging
+import logging.config
 
 def setup_logging(debug: bool):
     level = "DEBUG" if debug else "INFO"

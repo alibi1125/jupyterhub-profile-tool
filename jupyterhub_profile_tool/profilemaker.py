@@ -10,7 +10,7 @@ from urllib.parse import urljoin
 from schema import Schema, And, Or, Use, Regex, Optional, SchemaError
 
 from traitlets.config import Application, Configurable
-from traitlets import Int, Unicode, Tuple, Bool, Bytes
+from traitlets import Int, Unicode, Tuple, Bool
 
 from jupyterhub.services.auth import HubOAuthenticated, HubOAuthCallbackHandler
 
@@ -446,8 +446,8 @@ class ProfileMaker(Application):
         config = True
     )
 
-    allowed_time_regex = Bytes(
-        b"^([01]-)?([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$",
+    allowed_time_regex = Unicode(
+        "^([01]-)?([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]$",
         help = "The regex a wall time specifier will be checked against",
         config = True
     )
