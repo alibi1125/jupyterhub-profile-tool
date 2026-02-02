@@ -246,6 +246,7 @@ class ProfileManager(Configurable):
                     "req_nprocs": And(Use(str), lambda s: s.isdigit(), lambda s: (1 <= int(s) <= app.max_cpu_cores), error=f"Invalid nprocs spec, must be between 1 and {app.max_cpu_cores}"),
                     "req_memory": And(Regex(r"^[1-9][0-9]*\s*[kKmMgGtT]?[bB]?$", error="Malformed memory specification"), Use(lambda s: s.upper().replace(" ","").replace("B",""))),
                     Optional("req_gres"): Regex(r"^(gpu:((A40:)|(A100:))?[1-8])?$", error="Malformed GRES specification"),
+                    Optional("req_host"): Regex(r"^aisa-.*", error="Malformed host specification"),
                 },
             }
         )
